@@ -76,8 +76,8 @@ const seed: LocalState = {
     },
   ],
   tasks: [
-    { id: 'task-1', coupleId: 'demo-couple', creatorId: 'demo-b', title: '洗碗三天', points: 8, status: 'available', createdAt: Date.now() - 300000 },
-    { id: 'task-2', coupleId: 'demo-couple', creatorId: 'demo-a', claimerId: 'demo-b', title: '按摩 15 分鐘', points: 10, status: 'claimed', claimNote: '今晚完成', createdAt: Date.now() - 200000, claimedAt: Date.now() - 100000 },
+    { id: 'task-1', coupleId: 'demo-couple', creatorId: 'demo-b', title: '洗碗', points: 8, recurrence: 'daily', status: 'available', createdAt: Date.now() - 300000 },
+    { id: 'task-2', coupleId: 'demo-couple', creatorId: 'demo-a', claimerId: 'demo-b', title: '按摩 15 分鐘', points: 10, recurrence: 'weekly', status: 'claimed', claimNote: '今晚完成', createdAt: Date.now() - 200000, claimedAt: Date.now() - 100000 },
   ],
   transactions: [
     { id: 'tx-1', userId: 'demo-a', coupleId: 'demo-couple', amount: 18, reason: '示範點數', createdAt: Date.now() - 500000 },
@@ -290,7 +290,7 @@ export async function redeemWish(wish: Wish, user: AppUser) {
 }
 
 export async function addTask(input: Omit<ChoreTask, 'id' | 'status' | 'createdAt'>) {
-  const task: ChoreTask = { ...input, id: id(), status: 'available', createdAt: now() }
+  const task: ChoreTask = { ...input, recurrence: input.recurrence || 'once', id: id(), status: 'available', createdAt: now() }
   if (!isFirebaseConfigured || !db) {
     const state = readLocal(); state.tasks.push(task); writeLocal(state); return task
   }

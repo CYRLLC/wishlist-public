@@ -1,6 +1,7 @@
 export type WishStatus = 'pending' | 'approved' | 'rejected' | 'deferred' | 'redeemed' | 'completed'
 export type UrgencyLevel = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskStatus = 'available' | 'claimed' | 'approved' | 'rejected'
+export type TaskRecurrence = 'once' | 'daily' | 'weekly' | 'monthly'
 
 export type AppUser = {
   id: string
@@ -37,6 +38,7 @@ export type ChoreTask = {
   claimerId?: string | null
   title: string
   points: number
+  recurrence: TaskRecurrence
   status: TaskStatus
   claimNote?: string
   rejectionReason?: string

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Banknote, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Plus, Sparkles, Star, UserRound, X } from 'lucide-react'
-import type { AppUser, ChoreTask, CoupleData, UrgencyLevel, Wish, WishStatus } from './types'
+import type { AppUser, ChoreTask, CoupleData, TaskRecurrence, UrgencyLevel, Wish, WishStatus } from './types'
 import { addFundEntry, addMessage, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
@@ -17,6 +17,13 @@ const urgencyLabel: Record<UrgencyLevel, string> = {
   medium: '普通',
   high: '有點急',
   urgent: '現在就要',
+}
+
+const recurrenceLabel: Record<TaskRecurrence, string> = {
+  once: '單次',
+  daily: '每日',
+  weekly: '每週',
+  monthly: '每月',
 }
 
 const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
@@ -273,11 +280,22 @@ function WishCard({ wish, user, totalFund, reviewer, run }: { wish: Wish; user: 
 function TaskPanel({ user, tasks, run }: { user: AppUser; tasks: ChoreTask[]; run: (task: () => Promise<void>) => void }) {
   const [title, setTitle] = useState('')
   const [points, setPoints] = useState(5)
+  const [recurrence, setRecurrence] = useState<TaskRecurrence>('once')
   const [note, setNote] = useState('')
   return <section className="stack"><Header title="打工區" subtitle="建立任務、申請點數，對方確認後自動入帳。" />
-    <GuideCard title="打工區怎麼用" steps={['先建立一個任務，例如洗碗、按摩、陪跑步，並設定點數。', '完成對方建立的任務後，填備註並按「申請點數」。', '任務建立者確認後，點數會加到申請者帳號，並出現在點數紀錄。']} />
-    <form className="compose row" onSubmit={(e) => { e.preventDefault(); run(async () => { await addTask({ coupleId: user.coupleId!, creatorId: user.id, title, points }); setTitle('') }) }}><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="任務名稱，例如洗碗一次" required /><input type="number" min="1" value={points} onChange={(e) => setPoints(Number(e.target.value))} /><button className="primary">新增任務</button></form>
-    <div className="card-list">{tasks.map((task) => <article className="task-row" key={task.id}><div><strong>{task.title}</strong><span>{task.points} 點 · {task.status}</span>{task.claimNote && <p>{task.claimNote}</p>}</div><div className="actions">{task.status === 'available' && task.creatorId !== user.id && <button onClick={() => run(() => claimTask(task.id, user.id, note || '已完成'))}>申請點數</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => approveTask(task))}>確認給點</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => rejectTask(task.id, '需要再確認'))}>退回</button>}</div></article>)}{tasks.length === 0 && <Empty text="目前沒有任務" />}</div>
+    <GuideCard title="打工區怎麼用" steps={['先建立任務，選擇單次、每日、每週或每月週期。', '設定「每次完成」可拿多少點數，對方完成後再申請點數。', '任務建立者確認後，點數會加到申請者帳號，並出現在點數紀錄。']} />
+    <form className="compose task-form" onSubmit={(e) => { e.preventDefault(); run(async () => { await addTask({ coupleId: user.coupleId!, creatorId: user.id, title, points, recurrence }); setTitle('') }) }}>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="任務名稱，例如洗碗、倒垃圾、陪跑步" required />
+      <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as TaskRecurrence)} aria-label="任務週期">
+        <option value="once">單次</option>
+        <option value="daily">每日</option>
+        <option value="weekly">每週</option>
+        <option value="monthly">每月</option>
+      </select>
+      <input type="number" min="1" value={points} onChange={(e) => setPoints(Number(e.target.value))} aria-label="每次完成可拿點數" />
+      <button className="primary">新增任務</button>
+    </form>
+    <div className="card-list">{tasks.map((task) => <article className="task-row" key={task.id}><div><strong>{task.title}</strong><span>{recurrenceLabel[task.recurrence || 'once']} · 每次完成 {task.points} 點 · {task.status}</span>{task.claimNote && <p>{task.claimNote}</p>}</div><div className="actions">{task.status === 'available' && task.creatorId !== user.id && <button onClick={() => run(() => claimTask(task.id, user.id, note || '已完成'))}>申請點數</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => approveTask(task))}>確認給點</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => rejectTask(task.id, '需要再確認'))}>退回</button>}</div></article>)}{tasks.length === 0 && <Empty text="目前沒有任務" />}</div>
     <input className="wide-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="申請點數備註" />
   </section>
 }

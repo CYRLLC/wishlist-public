@@ -168,6 +168,7 @@ input:focus, textarea:focus, select:focus { border-color: rgba(220, 91, 116, 0.7
 .column { border-radius: 28px; padding: 18px; display: grid; align-content: start; gap: 14px; }
 .compose { border-radius: 28px; padding: 18px; display: grid; gap: 12px; }
 .compose.row { grid-template-columns: 1fr 130px auto; align-items: center; }
+.task-form { grid-template-columns: minmax(260px, 1fr) 150px 130px auto; align-items: center; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 
 .wish-card { border-radius: 26px; padding: 18px; display: grid; gap: 12px; }
@@ -220,7 +221,7 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   .sidebar nav { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
   .nav { justify-content: center; min-height: 54px; padding: 0 6px; font-size: 0.75rem; flex-direction: column; gap: 3px; }
   .section-head, .pair-form, .task-row { flex-direction: column; align-items: stretch; }
-  .stats, .columns, .form-grid, .compose.row, .couple-summary, .message-compose, .profile-grid { grid-template-columns: 1fr; }
+  .stats, .columns, .form-grid, .compose.row, .task-form, .couple-summary, .message-compose, .profile-grid { grid-template-columns: 1fr; }
   .guide-card ol { grid-template-columns: 1fr; }
   .link-line { grid-auto-flow: column; justify-content: center; }
   .message { width: 100%; }
