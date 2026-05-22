@@ -63,9 +63,19 @@ export type FundEntry = {
   createdAt: number
 }
 
+export type CoupleMessage = {
+  id: string
+  coupleId: string
+  authorId: string
+  body: string
+  createdAt: number
+}
+
 export type CoupleData = {
+  partner?: AppUser | null
   wishes: Wish[]
   tasks: ChoreTask[]
   transactions: PointTransaction[]
   fundEntries: FundEntry[]
+  messages: CoupleMessage[]
 }

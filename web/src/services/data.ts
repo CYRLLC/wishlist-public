@@ -18,7 +18,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { auth, db, isFirebaseConfigured } from './firebase'
-import type { AppUser, ChoreTask, CoupleData, FundEntry, PointTransaction, Wish, WishStatus } from '../types'
+import type { AppUser, ChoreTask, CoupleData, CoupleMessage, FundEntry, PointTransaction, Wish, WishStatus } from '../types'
 
 export { isFirebaseConfigured } from './firebase'
 
@@ -31,6 +31,7 @@ type LocalState = {
   tasks: ChoreTask[]
   transactions: PointTransaction[]
   fundEntries: FundEntry[]
+  messages: CoupleMessage[]
 }
 
 const seed: LocalState = {
@@ -85,6 +86,10 @@ const seed: LocalState = {
   fundEntries: [
     { id: 'fund-1', coupleId: 'demo-couple', userId: 'demo-a', amount: 1200, note: '本週存入', createdAt: Date.now() - 400000 },
     { id: 'fund-2', coupleId: 'demo-couple', userId: 'demo-b', amount: 800, note: '晚餐預算省下', createdAt: Date.now() - 250000 },
+  ],
+  messages: [
+    { id: 'msg-1', coupleId: 'demo-couple', authorId: 'demo-b', body: '我剛剛看到你的溫泉願望了，先暫緩但可以一起集點。', createdAt: Date.now() - 180000 },
+    { id: 'msg-2', coupleId: 'demo-couple', authorId: 'demo-a', body: '可以，我這週先把洗碗任務接起來。', createdAt: Date.now() - 120000 },
   ],
 }
 
@@ -200,17 +205,23 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
   if (!isFirebaseConfigured || !db) {
     const state = readLocal()
     onData({
+      partner: state.users.find((item) => item.coupleId === coupleId && item.id !== userId) || null,
       wishes: sortNewest(state.wishes.filter((item) => item.coupleId === coupleId)),
       tasks: sortNewest(state.tasks.filter((item) => item.coupleId === coupleId)),
       transactions: sortNewest(state.transactions.filter((item) => item.userId === userId)),
       fundEntries: sortNewest(state.fundEntries.filter((item) => item.coupleId === coupleId)),
+      messages: sortNewest(state.messages.filter((item) => item.coupleId === coupleId)),
     })
     return () => undefined
   }
 
-  const data: CoupleData = { wishes: [], tasks: [], transactions: [], fundEntries: [] }
+  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
   const emit = () => onData({ ...data })
   const unsubs = [
+    onSnapshot(query(collection(db, 'users'), where('coupleId', '==', coupleId)), (snap) => {
+      data.partner = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as AppUser).find((item) => item.id !== userId) || null
+      emit()
+    }),
     onSnapshot(query(collection(db, 'wishes'), where('coupleId', '==', coupleId)), (snap) => {
       data.wishes = sortNewest(snap.docs.map((docSnap) => fromDoc<Wish>(docSnap)))
       emit()
@@ -225,6 +236,10 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
     }),
     onSnapshot(query(collection(db, 'fund_entries'), where('coupleId', '==', coupleId)), (snap) => {
       data.fundEntries = sortNewest(snap.docs.map((docSnap) => fromDoc<FundEntry>(docSnap)))
+      emit()
+    }),
+    onSnapshot(query(collection(db, 'messages'), where('coupleId', '==', coupleId)), (snap) => {
+      data.messages = sortNewest(snap.docs.map((docSnap) => fromDoc<CoupleMessage>(docSnap)))
       emit()
     }),
   ]
@@ -325,4 +340,13 @@ export async function addFundEntry(input: Omit<FundEntry, 'id' | 'createdAt'>) {
   }
   await setDoc(doc(db, 'fund_entries', entry.id), entry)
   return entry
+}
+
+export async function addMessage(input: Omit<CoupleMessage, 'id' | 'createdAt'>) {
+  const message: CoupleMessage = { ...input, id: id(), createdAt: now() }
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.messages.push(message); writeLocal(state); return message
+  }
+  await setDoc(doc(db, 'messages', message.id), message)
+  return message
 }

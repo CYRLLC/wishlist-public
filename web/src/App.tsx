@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Banknote, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, Plus, Sparkles, Star, UserRound, X } from 'lucide-react'
+import { Banknote, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Plus, Sparkles, Star, UserRound, X } from 'lucide-react'
 import type { AppUser, ChoreTask, CoupleData, UrgencyLevel, Wish, WishStatus } from './types'
-import { addFundEntry, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
+import { addFundEntry, addMessage, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -19,7 +19,7 @@ const urgencyLabel: Record<UrgencyLevel, string> = {
   urgent: '現在就要',
 }
 
-const emptyData: CoupleData = { wishes: [], tasks: [], transactions: [], fundEntries: [] }
+const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
 const money = (value: number) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(value)
 
 function App() {
@@ -72,6 +72,7 @@ function App() {
           <nav>
             <Tab id="wishes" active={activeTab} setActive={setActiveTab} icon={<Gift size={18} />} label="願望" />
             <Tab id="tasks" active={activeTab} setActive={setActiveTab} icon={<Hammer size={18} />} label="打工區" />
+            <Tab id="messages" active={activeTab} setActive={setActiveTab} icon={<MessageCircle size={18} />} label="留言" />
             <Tab id="points" active={activeTab} setActive={setActiveTab} icon={<Star size={18} />} label="點數" />
             <Tab id="fund" active={activeTab} setActive={setActiveTab} icon={<Banknote size={18} />} label="資金" />
             <Tab id="profile" active={activeTab} setActive={setActiveTab} icon={<UserRound size={18} />} label="我" />
@@ -82,11 +83,13 @@ function App() {
         <main className="workspace">
           {!isFirebaseConfigured && <div className="notice">目前使用本機展示模式。設定 Firebase 環境變數後，登入、配對與資料會在雙方裝置同步。</div>}
           {error && <div className="error">{error}</div>}
+          <CoupleSummary user={user} partner={data.partner} />
           {activeTab === 'wishes' && <WishPanel user={user} data={data} run={run} />}
           {activeTab === 'tasks' && <TaskPanel user={user} tasks={data.tasks} run={run} />}
+          {activeTab === 'messages' && <MessagePanel user={user} data={data} run={run} />}
           {activeTab === 'points' && <PointsPanel user={user} data={data} run={run} />}
           {activeTab === 'fund' && <FundPanel user={user} data={data} run={run} />}
-          {activeTab === 'profile' && <ProfilePanel user={user} />}
+          {activeTab === 'profile' && <ProfilePanel user={user} partner={data.partner} />}
         </main>
       </div>
     </Shell>
@@ -170,6 +173,7 @@ function WishPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: 
   return (
     <section className="stack">
       <Header title="願望清單" subtitle="新增願望、審核對方願望，或用點數兌換暫緩項目。" action={<button className="primary compact" onClick={() => setOpen(!open)}><Plus size={16} />新增願望</button>} />
+      <GuideCard title="願望區怎麼用" steps={['自己想要的東西或約會先按「新增願望」送出。', '對方的願望會出現在右側，可以同意、駁回或設定點數暫緩。', '如果願望有填預估金額，會自動和資金區的共同資金比較差額。']} />
       <Stats wishes={data.wishes} totalFund={totalFund} points={user.points} />
       {open && <WishForm user={user} onSubmit={(input) => run(async () => { await addWish(input); setOpen(false) })} />}
       <div className="columns">
@@ -182,6 +186,37 @@ function WishPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: 
 
 function Header({ title, subtitle, action }: { title: string; subtitle: string; action?: React.ReactNode }) {
   return <div className="section-head"><div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div>
+}
+
+function GuideCard({ title, steps }: { title: string; steps: string[] }) {
+  return (
+    <aside className="guide-card">
+      <strong>{title}</strong>
+      <ol>
+        {steps.map((step) => <li key={step}>{step}</li>)}
+      </ol>
+    </aside>
+  )
+}
+
+function CoupleSummary({ user, partner }: { user: AppUser; partner?: AppUser | null }) {
+  return (
+    <section className="couple-summary">
+      <PersonBadge label="我" user={user} />
+      <div className="link-line"><HeartHandshake size={18} /><span>已配對</span></div>
+      {partner ? <PersonBadge label="對方" user={partner} /> : <div className="person-card missing"><span>對方</span><strong>尚未讀取到資料</strong><small>如果剛配對，請稍等同步。</small></div>}
+    </section>
+  )
+}
+
+function PersonBadge({ label, user }: { label: string; user: AppUser }) {
+  return (
+    <div className="person-card">
+      <span>{label}</span>
+      <strong>{user.nickname || '未命名'}</strong>
+      <small>{user.email}</small>
+    </div>
+  )
 }
 
 function Stats({ wishes, totalFund, points }: { wishes: Wish[]; totalFund: number; points: number }) {
@@ -240,15 +275,38 @@ function TaskPanel({ user, tasks, run }: { user: AppUser; tasks: ChoreTask[]; ru
   const [points, setPoints] = useState(5)
   const [note, setNote] = useState('')
   return <section className="stack"><Header title="打工區" subtitle="建立任務、申請點數，對方確認後自動入帳。" />
+    <GuideCard title="打工區怎麼用" steps={['先建立一個任務，例如洗碗、按摩、陪跑步，並設定點數。', '完成對方建立的任務後，填備註並按「申請點數」。', '任務建立者確認後，點數會加到申請者帳號，並出現在點數紀錄。']} />
     <form className="compose row" onSubmit={(e) => { e.preventDefault(); run(async () => { await addTask({ coupleId: user.coupleId!, creatorId: user.id, title, points }); setTitle('') }) }}><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="任務名稱，例如洗碗一次" required /><input type="number" min="1" value={points} onChange={(e) => setPoints(Number(e.target.value))} /><button className="primary">新增任務</button></form>
     <div className="card-list">{tasks.map((task) => <article className="task-row" key={task.id}><div><strong>{task.title}</strong><span>{task.points} 點 · {task.status}</span>{task.claimNote && <p>{task.claimNote}</p>}</div><div className="actions">{task.status === 'available' && task.creatorId !== user.id && <button onClick={() => run(() => claimTask(task.id, user.id, note || '已完成'))}>申請點數</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => approveTask(task))}>確認給點</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => rejectTask(task.id, '需要再確認'))}>退回</button>}</div></article>)}{tasks.length === 0 && <Empty text="目前沒有任務" />}</div>
     <input className="wide-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="申請點數備註" />
   </section>
 }
 
+function MessagePanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
+  const [body, setBody] = useState('')
+  const nameOf = (authorId: string) => authorId === user.id ? user.nickname : data.partner?.nickname || '對方'
+
+  return <section className="stack"><Header title="情侶留言板" subtitle="留給對方的訊息會同步到同一個配對空間，適合補充願望原因、約定任務或記錄小提醒。" />
+    <GuideCard title="留言板怎麼用" steps={['把不適合放在願望卡裡的補充、提醒或約定寫在這裡。', '留言會顯示作者與時間，雙方登入後都能看到。', '每則最多 500 字，適合短訊息，不建議當長篇日記。']} />
+    <form className="message-compose" onSubmit={(event) => { event.preventDefault(); const text = body.trim(); if (!text) return; run(async () => { await addMessage({ coupleId: user.coupleId!, authorId: user.id, body: text }); setBody('') }) }}>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="想跟對方說什麼？例如：我週五前會完成這個任務。" maxLength={500} />
+      <button className="primary">送出留言</button>
+    </form>
+    <div className="message-list">
+      {data.messages.map((message) => <article className={message.authorId === user.id ? 'message mine' : 'message'} key={message.id}>
+        <div className="message-meta"><strong>{nameOf(message.authorId)}</strong><span>{new Date(message.createdAt).toLocaleString('zh-TW')}</span></div>
+        <p>{message.body}</p>
+      </article>)}
+      {data.messages.length === 0 && <Empty text="目前沒有留言" />}
+    </div>
+  </section>
+}
+
 function PointsPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
   const redeemable = data.wishes.filter((wish) => wish.authorId === user.id && wish.status === 'deferred')
-  return <section className="stack"><Header title="點數總覽" subtitle="點數不可轉讓，只能用來兌換暫緩願望。" /><div className="points-hero"><Sparkles /><strong>{user.points}</strong><span>目前可用點數</span></div>
+  return <section className="stack"><Header title="點數總覽" subtitle="點數不可轉讓，只能用來兌換暫緩願望。" />
+    <GuideCard title="點數區怎麼用" steps={['點數主要透過完成打工區任務取得。', '只有自己的點數能兌換自己的暫緩願望，不能轉給對方。', '兌換後會扣點，並在右側紀錄中留下消費紀錄。']} />
+    <div className="points-hero"><Sparkles /><strong>{user.points}</strong><span>目前可用點數</span></div>
     <div className="columns"><div className="column"><h2>可兌換願望</h2>{redeemable.map((wish) => <article className="task-row" key={wish.id}><div><strong>{wish.title}</strong><span>需要 {wish.deferredPoints} 點</span></div><button onClick={() => run(() => redeemWish(wish, user))}>兌換</button></article>)}{redeemable.length === 0 && <Empty text="沒有可兌換項目" />}</div><div className="column"><h2>點數紀錄</h2>{data.transactions.map((tx) => <article className="task-row" key={tx.id}><div><strong>{tx.reason}</strong><span>{new Date(tx.createdAt).toLocaleString('zh-TW')}</span></div><b className={tx.amount > 0 ? 'gain' : 'spend'}>{tx.amount > 0 ? '+' : ''}{tx.amount}</b></article>)}</div></div></section>
 }
 
@@ -258,14 +316,21 @@ function FundPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: 
   const total = data.fundEntries.reduce((sum, entry) => sum + entry.amount, 0)
   const pricedWishes = useMemo(() => data.wishes.filter((wish) => wish.estimatedPrice).sort((a, b) => (a.estimatedPrice! - total) - (b.estimatedPrice! - total)), [data.wishes, total])
   return <section className="stack"><Header title="資金區" subtitle="共同存款與願望價格連動，快速看見最接近完成的目標。" />
+    <GuideCard title="資金區怎麼用" steps={['每次存錢時手動新增金額與備註，雙方都看得到。', '願望有填預估金額時，這裡會顯示共同資金還差多少。', '目前只是共同記帳，不會連動銀行或付款。']} />
     <div className="fund-hero"><span>目前共同資金</span><strong>{money(total)}</strong></div>
     <form className="compose row" onSubmit={(e) => { e.preventDefault(); run(async () => { await addFundEntry({ coupleId: user.coupleId!, userId: user.id, amount: Number(amount), note }); setAmount(''); setNote('') }) }}><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="存入金額" inputMode="numeric" required /><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註" /><button className="primary">新增存入</button></form>
     <div className="columns"><div className="column"><h2>願望資金比較</h2>{pricedWishes.map((wish) => <article className="task-row" key={wish.id}><div><strong>{wish.title}</strong><span>{wish.estimatedPrice && total >= wish.estimatedPrice ? '已可購買' : `還差 ${money((wish.estimatedPrice || 0) - total)}`}</span></div><b>{wish.estimatedPrice ? money(wish.estimatedPrice) : '-'}</b></article>)}</div><div className="column"><h2>存入記錄</h2>{data.fundEntries.map((entry) => <article className="task-row" key={entry.id}><div><strong>{money(entry.amount)}</strong><span>{entry.note || '無備註'}</span></div></article>)}</div></div>
   </section>
 }
 
-function ProfilePanel({ user }: { user: AppUser }) {
-  return <section className="stack"><Header title="個人資料" subtitle="邀請碼可用來與另一半配對。" /><div className="profile-card"><UserRound size={42} /><h2>{user.nickname}</h2><p>{user.email}</p><div className="invite-box"><span>邀請碼</span><strong>{user.id}</strong></div></div></section>
+function ProfilePanel({ user, partner }: { user: AppUser; partner?: AppUser | null }) {
+  return <section className="stack"><Header title="雙方資料" subtitle="確認目前登入者與配對對象，避免不知道配到誰。" />
+    <GuideCard title="雙方資料怎麼看" steps={['左邊是目前登入的自己，右邊是已配對的對方。', '如果對方資料沒有出現，通常是剛配對尚未同步，先重新整理。', '要重新確認配對對象時，先看這裡的暱稱、Email 和 ID。']} />
+    <div className="profile-grid">
+      <div className="profile-card"><UserRound size={42} /><span>我</span><h2>{user.nickname}</h2><p>{user.email}</p><div className="invite-box"><span>我的邀請碼</span><strong>{user.id}</strong></div></div>
+      <div className="profile-card"><HeartHandshake size={42} /><span>配對對象</span>{partner ? <><h2>{partner.nickname}</h2><p>{partner.email}</p><div className="invite-box"><span>對方 ID</span><strong>{partner.id}</strong></div></> : <><h2>尚未讀取到資料</h2><p>如果剛完成配對，請稍等同步或重新整理。</p></>}</div>
+    </div>
+  </section>
 }
 
 function Empty({ text }: { text: string }) {
