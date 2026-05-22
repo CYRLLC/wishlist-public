@@ -1,0 +1,26 @@
+# Xcode 自動產生（XcodeGen 負責重建）
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Firebase（絕對不要 commit！）
+WishLink/GoogleService-Info.plist
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Codemagic build output
+build/

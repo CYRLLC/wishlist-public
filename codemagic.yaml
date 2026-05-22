@@ -1,0 +1,40 @@
+workflows:
+  ios-simulator-build:
+    name: WishLink — Simulator Build
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      vars:
+        XCODE_SCHEME: WishLink
+        XCODE_PROJECT: WishLink.xcodeproj
+
+    scripts:
+      - name: 注入 GoogleService-Info.plist
+        script: |
+          echo $GOOGLE_SERVICE_INFO_PLIST | base64 --decode > WishLink/GoogleService-Info.plist
+
+      - name: 安裝 XcodeGen
+        script: brew install xcodegen
+
+      - name: 產生 Xcode 專案
+        script: xcodegen generate --spec project.yml
+
+      - name: 解析 Swift Package 相依套件
+        script: |
+          xcodebuild -resolvePackageDependencies \
+            -project $XCODE_PROJECT \
+            -scheme $XCODE_SCHEME
+
+      - name: Build（模擬器）
+        script: |
+          xcodebuild build \
+            -project $XCODE_PROJECT \
+            -scheme $XCODE_SCHEME \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -derivedDataPath "$CM_BUILD_DIR/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty
+
+    artifacts:
+      - "$CM_BUILD_DIR/build/Build/Products/**/*.app"
+      - /tmp/xcodebuild_logs/*.log

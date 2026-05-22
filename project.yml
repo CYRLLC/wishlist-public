@@ -1,0 +1,46 @@
+name: WishLink
+options:
+  bundleIdPrefix: com.cyrllc
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16"
+
+packages:
+  FirebaseSDK:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "11.0.0"
+
+targets:
+  WishLink:
+    type: application
+    platform: iOS
+    sources:
+      - path: WishLink
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cyrllc.wishlink
+        SWIFT_VERSION: "5.10"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        ENABLE_PREVIEWS: YES
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    dependencies:
+      - package: FirebaseSDK
+        product: FirebaseAuth
+      - package: FirebaseSDK
+        product: FirebaseFirestore
+      - package: FirebaseSDK
+        product: FirebaseStorage
+    info:
+      path: WishLink/Info.plist
+      properties:
+        CFBundleName: WishLink
+        CFBundleDisplayName: WishLink
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen:
+          UIColorName: ""
+        NSPhotoLibraryUsageDescription: "需要取得相片權限以上傳願望圖片"
+        NSCameraUsageDescription: "需要相機權限以拍攝願望圖片"
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
