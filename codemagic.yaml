@@ -3,6 +3,8 @@ workflows:
     name: WishLink — Simulator Build
     max_build_duration: 60
     environment:
+      groups:
+        - firebase
       xcode: latest
       vars:
         XCODE_SCHEME: WishLink
