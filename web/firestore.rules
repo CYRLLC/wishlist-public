@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isSelf(userId) { return signedIn() && request.auth.uid == userId; }
+    function userDoc(userId) { return get(/databases/$(database)/documents/users/$(userId)); }
+    function sameCouple(coupleId) {
+      return signedIn() && userDoc(request.auth.uid).data.coupleId == coupleId;
+    }
+
+    match /users/{userId} {
+      allow create: if isSelf(userId);
+      allow read: if signedIn();
+      allow update: if isSelf(userId)
+        || (signedIn()
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['coupleId'])
+          && request.resource.data.coupleId is string);
+    }
+
+    match /couples/{coupleId} {
+      allow create: if signedIn() && request.auth.uid in request.resource.data.members;
+      allow read: if sameCouple(coupleId);
+    }
+
+    match /wishes/{wishId} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.authorId == request.auth.uid;
+      allow update: if sameCouple(resource.data.coupleId);
+    }
+
+    match /tasks/{taskId} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.creatorId == request.auth.uid;
+      allow update: if sameCouple(resource.data.coupleId);
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if sameCouple(request.resource.data.coupleId);
+    }
+
+    match /fund_entries/{entryId} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

@@ -24,3 +24,10 @@ WishLink/GoogleService-Info.plist
 
 # Codemagic build output
 build/
+
+# Web
+web/node_modules/
+web/dist/
+web/.env.local
+web/.env.*.local
+
