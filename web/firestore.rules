@@ -14,7 +14,11 @@ service cloud.firestore {
       allow update: if isSelf(userId)
         || (signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly(['coupleId'])
-          && request.resource.data.coupleId is string);
+          && request.resource.data.coupleId is string)
+        || (signedIn()
+          && sameCouple(resource.data.coupleId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['points'])
+          && request.resource.data.points is number);
     }
 
     match /couples/{coupleId} {
@@ -42,6 +46,15 @@ service cloud.firestore {
     match /fund_entries/{entryId} {
       allow read: if sameCouple(resource.data.coupleId);
       allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /messages/{messageId} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId)
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 500;
     }
   }
 }
