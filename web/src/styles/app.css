@@ -260,7 +260,7 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   .app-shell { grid-template-columns: 1fr; padding-bottom: 84px; }
   .sidebar { position: fixed; inset: auto 12px 12px; height: auto; z-index: 10; border-radius: 24px; padding: 10px; }
   .brand, .sidebar .ghost { display: none; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .nav { justify-content: center; min-height: 54px; padding: 0 6px; font-size: 0.75rem; flex-direction: column; gap: 3px; }
   .section-head, .pair-form, .task-row { flex-direction: column; align-items: stretch; }
   .stats, .columns, .form-grid, .compose.row, .task-form, .couple-summary, .message-compose, .profile-grid, .notification-center { grid-template-columns: 1fr; }
@@ -271,6 +271,95 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   .message { width: 100%; }
   .card-top, .fund-mini div { flex-direction: column; }
 }
+
+/* ─── Night Sky Dark Mode ─── */
+[data-theme="dark"] {
+  --ink: #ddd6f8;
+  --muted: #9080b8;
+  --paper: rgba(255, 255, 255, 0.05);
+  --solid: #07071f;
+  --line: rgba(180, 160, 255, 0.14);
+  --rose: #f09ab0;
+  --rose-dark: #d4708a;
+  --gold: #f0c870;
+  --mint: #80d4b4;
+  --shadow: 0 22px 60px rgba(0, 0, 60, 0.55);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .page {
+  background:
+    radial-gradient(1.5px 1.5px at 8% 12%, rgba(255,255,255,0.80) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 16% 38%, rgba(255,255,255,0.50) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 24% 7%,  rgba(255,255,255,0.90) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 33% 58%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 40% 22%, rgba(255,255,255,0.75) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 52% 15%, rgba(255,255,255,0.55) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 59% 70%, rgba(255,255,255,0.70) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 67% 44%, rgba(255,255,255,0.40) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 75% 9%,  rgba(255,255,255,0.85) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 84% 52%, rgba(255,255,255,0.50) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 91% 25%, rgba(255,255,255,0.65) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 46% 85%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 12% 68%, rgba(255,255,255,0.60) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 61% 93%, rgba(255,255,255,0.50) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 79% 78%, rgba(255,255,255,0.40) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 3%  48%, rgba(255,255,255,0.60) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 96% 63%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 29% 90%, rgba(255,255,255,0.55) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 71% 32%, rgba(255,255,255,0.70) 0%, transparent 100%),
+    radial-gradient(1px   1px   at 88% 88%, rgba(255,255,255,0.50) 0%, transparent 100%),
+    radial-gradient(ellipse at 20% 8%,  rgba(110, 60, 210, 0.30), transparent 40%),
+    radial-gradient(ellipse at 80% 88%, rgba(50,  28, 160, 0.35), transparent 45%),
+    radial-gradient(ellipse at 55% 50%, rgba(28,  14,  90, 0.20), transparent 55%),
+    radial-gradient(ellipse at 5%  90%, rgba(80,  40, 160, 0.20), transparent 35%),
+    linear-gradient(170deg, #040415 0%, #090924 55%, #060619 100%);
+}
+
+[data-theme="dark"] .orb-a { background: rgba(130, 70, 240, 0.45); width: 320px; height: 320px; filter: blur(14px); }
+[data-theme="dark"] .orb-b { background: rgba(55, 35, 180, 0.40); width: 380px; height: 380px; filter: blur(12px); }
+
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  border-color: var(--line);
+}
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder { color: var(--muted); }
+[data-theme="dark"] input:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] select:focus { border-color: rgba(240, 154, 176, 0.6); box-shadow: 0 0 0 4px rgba(240, 154, 176, 0.1); }
+
+[data-theme="dark"] .nav { color: var(--muted); }
+[data-theme="dark"] .nav.active { background: rgba(180, 150, 255, 0.18); color: #ddd6f8; }
+[data-theme="dark"] .ghost,
+[data-theme="dark"] .actions button { background: rgba(255, 255, 255, 0.10); color: var(--ink); }
+[data-theme="dark"] .primary { box-shadow: 0 12px 26px rgba(240, 112, 138, 0.3); }
+
+[data-theme="dark"] .person-card { background: rgba(255, 255, 255, 0.06); }
+[data-theme="dark"] .link-line { color: var(--rose); }
+[data-theme="dark"] .guide-card { background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(160,130,255,0.06)); }
+[data-theme="dark"] .invite-box { border-color: rgba(180, 150, 255, 0.22); background: rgba(255, 255, 255, 0.04); }
+[data-theme="dark"] .notice { background: rgba(240, 200, 80, 0.08); border-color: rgba(222, 158, 44, 0.25); color: #c9a050; }
+[data-theme="dark"] .error { background: rgba(220, 60, 80, 0.10); border-color: rgba(220, 60, 80, 0.25); }
+[data-theme="dark"] blockquote { background: rgba(200, 150, 40, 0.10); color: #c9a050; }
+[data-theme="dark"] .check-row { background: rgba(220, 91, 116, 0.10); border-color: rgba(220, 91, 116, 0.25); }
+[data-theme="dark"] .message.mine { background: rgba(220, 91, 116, 0.10); border-color: rgba(220, 91, 116, 0.20); }
+[data-theme="dark"] .intent-text { background: rgba(220, 91, 116, 0.12); }
+[data-theme="dark"] .chip { background: rgba(255, 255, 255, 0.10); color: var(--muted); }
+[data-theme="dark"] .chip.approved,
+[data-theme="dark"] .chip.redeemed,
+[data-theme="dark"] .chip.completed { background: rgba(111, 182, 154, 0.15); color: #7dd4b0; }
+[data-theme="dark"] .chip.rejected { background: rgba(220, 80, 80, 0.15); color: #f08080; }
+[data-theme="dark"] .chip.deferred { background: rgba(240, 190, 60, 0.12); color: #f0c060; }
+[data-theme="dark"] .gain { color: #6dd4a0; }
+[data-theme="dark"] .spend { color: #f08090; }
+[data-theme="dark"] progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.10); }
+[data-theme="dark"] .logo-mark { background: rgba(120, 70, 220, 0.80); }
+[data-theme="dark"] .empty,
+[data-theme="dark"] .loading { border-color: rgba(180, 160, 255, 0.18); }
 
 @media (prefers-reduced-motion: no-preference) {
   .auth-card, .pair-card, .workspace { animation: rise 520ms ease both; }

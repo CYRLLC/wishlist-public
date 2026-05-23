@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Banknote, Bell, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Plus, Sparkles, Star, UserRound, X } from 'lucide-react'
+import { Banknote, Bell, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Moon, Plus, Sparkles, Star, Sun, UserRound, X } from 'lucide-react'
 import type { AppUser, ChoreTask, CoupleData, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
 import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
 
@@ -48,6 +48,17 @@ function App() {
   const [data, setData] = useState<CoupleData>(emptyData)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('wishes')
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('wishlink-theme') === 'dark')
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
+  }, [darkMode])
+
+  const toggleDark = () => {
+    const next = !darkMode
+    setDarkMode(next)
+    localStorage.setItem('wishlink-theme', next ? 'dark' : 'light')
+  }
   const [error, setError] = useState('')
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [browserNoticeEnabled, setBrowserNoticeEnabled] = useState(false)
@@ -158,6 +169,7 @@ function App() {
             <Tab id="points" active={activeTab} setActive={setActiveTab} icon={<Star size={18} />} label="點數" />
             <Tab id="fund" active={activeTab} setActive={setActiveTab} icon={<Banknote size={18} />} label="資金" />
             <Tab id="profile" active={activeTab} setActive={setActiveTab} icon={<UserRound size={18} />} label="我" />
+            <button className="nav" onClick={toggleDark}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}{darkMode ? '白天' : '夜晚'}</button>
           </nav>
           <button className="ghost" onClick={() => run(async () => { await logout(); setUser(null) })}><LogOut size={16} />登出</button>
         </aside>
