@@ -60,7 +60,7 @@ button { cursor: pointer; }
 .logo-mark { width: 72px; height: 72px; border-radius: 24px; display: grid; place-items: center; background: #2b1d18; color: #fff6ef; box-shadow: var(--shadow); }
 .logo-mark svg { width: 36px; height: 36px; }
 
-.form-panel, .pair-card, .compose, .wish-card, .metric, .task-row, .points-hero, .fund-hero, .profile-card, .sidebar, .column, .couple-summary, .message-compose, .message, .guide-card {
+.form-panel, .pair-card, .compose, .wish-card, .metric, .task-row, .points-hero, .fund-hero, .profile-card, .sidebar, .column, .couple-summary, .message-compose, .message, .guide-card, .notification-center {
   background: var(--paper);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -80,6 +80,18 @@ input, textarea, select {
 }
 textarea { min-height: 88px; resize: vertical; }
 input:focus, textarea:focus, select:focus { border-color: rgba(220, 91, 116, 0.7); box-shadow: 0 0 0 4px rgba(220, 91, 116, 0.12); }
+.check-row {
+  border: 1px solid rgba(220, 91, 116, 0.22);
+  background: rgba(255, 244, 248, 0.74);
+  border-radius: 18px;
+  padding: 13px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--rose-dark);
+  font-weight: 900;
+}
+.check-row input { width: auto; accent-color: var(--rose); }
 
 .primary, .ghost, .link, .actions button, .nav {
   border: 0;
@@ -119,6 +131,29 @@ input:focus, textarea:focus, select:focus { border-color: rgba(220, 91, 116, 0.7
 .stack { display: grid; gap: 18px; }
 .section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 6px; }
 .section-head h1 { max-width: 980px; }
+
+.notification-center {
+  border-radius: 24px;
+  padding: 14px;
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+}
+.notification-title { display: flex; align-items: center; gap: 8px; }
+.notification-title span { color: var(--muted); font-size: 0.9rem; }
+.notification-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.notification-list { grid-column: 1 / -1; display: grid; gap: 8px; }
+.notification-item {
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 4px;
+}
+.notification-item span { color: var(--muted); line-height: 1.5; }
 
 .couple-summary {
   border-radius: 28px;
@@ -175,6 +210,13 @@ input:focus, textarea:focus, select:focus { border-color: rgba(220, 91, 116, 0.7
 .card-top { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.9rem; }
 .wish-card h3 { font-size: 1.35rem; margin: 0; }
 .wish-card p { margin: 0; color: var(--muted); line-height: 1.6; }
+.intent-text {
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: rgba(220, 91, 116, 0.1);
+  color: var(--rose-dark) !important;
+  font-weight: 800;
+}
 blockquote { margin: 0; border-left: 4px solid var(--gold); padding: 8px 0 8px 14px; color: #5d4137; background: rgba(255, 244, 220, 0.55); border-radius: 0 14px 14px 0; }
 .chip { border-radius: 999px; padding: 6px 10px; font-size: 0.82rem; font-weight: 900; background: rgba(43, 29, 24, 0.08); }
 .chip.approved, .chip.redeemed, .chip.completed { background: rgba(111, 182, 154, 0.18); color: #276b52; }
@@ -221,7 +263,9 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   .sidebar nav { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
   .nav { justify-content: center; min-height: 54px; padding: 0 6px; font-size: 0.75rem; flex-direction: column; gap: 3px; }
   .section-head, .pair-form, .task-row { flex-direction: column; align-items: stretch; }
-  .stats, .columns, .form-grid, .compose.row, .task-form, .couple-summary, .message-compose, .profile-grid { grid-template-columns: 1fr; }
+  .stats, .columns, .form-grid, .compose.row, .task-form, .couple-summary, .message-compose, .profile-grid, .notification-center { grid-template-columns: 1fr; }
+  .notification-actions { justify-content: stretch; }
+  .notification-actions .ghost { width: 100%; }
   .guide-card ol { grid-template-columns: 1fr; }
   .link-line { grid-auto-flow: column; justify-content: center; }
   .message { width: 100%; }

@@ -24,6 +24,7 @@ export type Wish = {
   estimatedPrice?: number | null
   purchaseURL?: string
   imageURLs: string[]
+  selfPurchase: boolean
   status: WishStatus
   rejectionReason?: string
   deferredPoints?: number | null
@@ -42,6 +43,7 @@ export type ChoreTask = {
   status: TaskStatus
   claimNote?: string
   rejectionReason?: string
+  selfReport?: boolean
   createdAt: number
   claimedAt?: number
 }

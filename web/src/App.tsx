@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Banknote, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Plus, Sparkles, Star, UserRound, X } from 'lucide-react'
-import type { AppUser, ChoreTask, CoupleData, TaskRecurrence, UrgencyLevel, Wish, WishStatus } from './types'
-import { addFundEntry, addMessage, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
+import { Banknote, Bell, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Plus, Sparkles, Star, UserRound, X } from 'lucide-react'
+import type { AppUser, ChoreTask, CoupleData, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
+import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -26,8 +26,22 @@ const recurrenceLabel: Record<TaskRecurrence, string> = {
   monthly: '每月',
 }
 
+const taskStatusLabel: Record<TaskStatus, string> = {
+  available: '可申請',
+  claimed: '等待審核',
+  approved: '已給點',
+  rejected: '已退回',
+}
+
 const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
 const money = (value: number) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(value)
+
+type AppNotification = {
+  id: string
+  title: string
+  body: string
+  createdAt: number
+}
 
 function App() {
   const [user, setUser] = useState<AppUser | null>(null)
@@ -35,6 +49,8 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('wishes')
   const [error, setError] = useState('')
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [browserNoticeEnabled, setBrowserNoticeEnabled] = useState(false)
 
   useEffect(() => {
     return observeAuth((nextUser) => {
@@ -51,6 +67,55 @@ function App() {
     return observeCoupleData(user.coupleId, user.id, setData)
   }, [user?.coupleId, user?.id])
 
+  useEffect(() => {
+    setBrowserNoticeEnabled(typeof Notification !== 'undefined' && Notification.permission === 'granted')
+  }, [])
+
+  useEffect(() => {
+    if (!user?.coupleId) return
+    const seenKey = `wishlink-seen-${user.id}-${user.coupleId}`
+    const seen = new Set<string>(JSON.parse(localStorage.getItem(seenKey) || '[]') as string[])
+    const nextSeen = new Set(seen)
+    const nextNotifications: AppNotification[] = []
+
+    data.wishes.forEach((wish) => {
+      const key = `wish:${wish.id}`
+      if (wish.authorId !== user.id && !seen.has(key)) {
+        nextNotifications.push({
+          id: key,
+          title: '有新的願望',
+          body: `${data.partner?.nickname || '對方'} 新增了「${wish.title}」`,
+          createdAt: wish.createdAt,
+        })
+      }
+      nextSeen.add(key)
+    })
+
+    data.tasks.forEach((task) => {
+      const key = `task:${task.id}`
+      if (task.creatorId !== user.id && !seen.has(key)) {
+        nextNotifications.push({
+          id: key,
+          title: task.selfReport ? '有新的完成申報' : '有新的打工任務',
+          body: task.selfReport
+            ? `${data.partner?.nickname || '對方'} 申報了「${task.title}」，建議 ${task.points} 點`
+            : `${data.partner?.nickname || '對方'} 新增了「${task.title}」，每次完成 ${task.points} 點`,
+          createdAt: task.createdAt,
+        })
+      }
+      nextSeen.add(key)
+    })
+
+    if (nextNotifications.length > 0) {
+      setNotifications((current) => [...nextNotifications, ...current].slice(0, 8))
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        nextNotifications.forEach((item) => new Notification(item.title, { body: item.body }))
+      }
+    }
+
+    localStorage.setItem(seenKey, JSON.stringify([...nextSeen].slice(-500)))
+  }, [data.wishes, data.tasks, data.partner?.nickname, user?.coupleId, user?.id])
+
   const refreshLocalUser = () => {
     if (isFirebaseConfigured) return
     observeAuth((nextUser) => setUser(nextUser))
@@ -65,6 +130,16 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失敗')
     }
+  }
+
+  const enableBrowserNotifications = async () => {
+    if (typeof Notification === 'undefined') {
+      setError('這個瀏覽器不支援通知。')
+      return
+    }
+    const result = await Notification.requestPermission()
+    setBrowserNoticeEnabled(result === 'granted')
+    if (result !== 'granted') setError('瀏覽器通知尚未允許，仍會顯示站內通知。')
   }
 
   if (loading) return <Shell><div className="loading">WishLink 載入中...</div></Shell>
@@ -90,6 +165,7 @@ function App() {
         <main className="workspace">
           {!isFirebaseConfigured && <div className="notice">目前使用本機展示模式。設定 Firebase 環境變數後，登入、配對與資料會在雙方裝置同步。</div>}
           {error && <div className="error">{error}</div>}
+          <NotificationCenter notifications={notifications} enabled={browserNoticeEnabled} onEnable={enableBrowserNotifications} onClear={() => setNotifications([])} />
           <CoupleSummary user={user} partner={data.partner} />
           {activeTab === 'wishes' && <WishPanel user={user} data={data} run={run} />}
           {activeTab === 'tasks' && <TaskPanel user={user} tasks={data.tasks} run={run} />}
@@ -109,6 +185,21 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Tab({ id, active, setActive, icon, label }: { id: string; active: string; setActive: (id: string) => void; icon: React.ReactNode; label: string }) {
   return <button className={active === id ? 'nav active' : 'nav'} onClick={() => setActive(id)}>{icon}{label}</button>
+}
+
+function NotificationCenter({ notifications, enabled, onEnable, onClear }: { notifications: AppNotification[]; enabled: boolean; onEnable: () => void; onClear: () => void }) {
+  return (
+    <section className="notification-center">
+      <div className="notification-title"><Bell size={18} /><strong>通知</strong><span>{notifications.length > 0 ? `${notifications.length} 則新通知` : '目前沒有新通知'}</span></div>
+      <div className="notification-actions">
+        <button className="ghost" onClick={onEnable}>{enabled ? '瀏覽器通知已開啟' : '開啟瀏覽器通知'}</button>
+        {notifications.length > 0 && <button className="ghost" onClick={onClear}>清除</button>}
+      </div>
+      {notifications.length > 0 && <div className="notification-list">
+        {notifications.map((item) => <article className="notification-item" key={item.id}><strong>{item.title}</strong><span>{item.body}</span></article>)}
+      </div>}
+    </section>
+  )
 }
 
 function AuthScreen({ onDone }: { onDone: (user: AppUser | null) => void }) {
@@ -180,7 +271,7 @@ function WishPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: 
   return (
     <section className="stack">
       <Header title="願望清單" subtitle="新增願望、審核對方願望，或用點數兌換暫緩項目。" action={<button className="primary compact" onClick={() => setOpen(!open)}><Plus size={16} />新增願望</button>} />
-      <GuideCard title="願望區怎麼用" steps={['自己想要的東西或約會先按「新增願望」送出。', '對方的願望會出現在右側，可以同意、駁回或設定點數暫緩。', '如果願望有填預估金額，會自動和資金區的共同資金比較差額。']} />
+      <GuideCard title="願望區怎麼用" steps={['自己想買的東西可勾選「想自己買」，讓對方用點數門檻回應。', '對方的願望會出現在右側，可以同意、駁回或設定多少點數可換。', '點數達標後，可在點數區或願望卡上兌換「自己購買權」。']} />
       <Stats wishes={data.wishes} totalFund={totalFund} points={user.points} />
       {open && <WishForm user={user} onSubmit={(input) => run(async () => { await addWish(input); setOpen(false) })} />}
       <div className="columns">
@@ -242,13 +333,15 @@ function WishForm({ user, onSubmit }: { user: AppUser; onSubmit: (wish: Paramete
   const [urgency, setUrgency] = useState<UrgencyLevel>('medium')
   const [estimatedPrice, setEstimatedPrice] = useState('')
   const [purchaseURL, setPurchaseURL] = useState('')
+  const [selfPurchase, setSelfPurchase] = useState(false)
 
-  return <form className="compose" onSubmit={(event) => { event.preventDefault(); onSubmit({ authorId: user.id, coupleId: user.coupleId!, title, description, persuasion, desireLevel, urgency, estimatedPrice: estimatedPrice ? Number(estimatedPrice) : null, purchaseURL }) }}>
+  return <form className="compose" onSubmit={(event) => { event.preventDefault(); onSubmit({ authorId: user.id, coupleId: user.coupleId!, title, description, persuasion, desireLevel, urgency, estimatedPrice: estimatedPrice ? Number(estimatedPrice) : null, purchaseURL, selfPurchase }) }}>
     <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="願望名稱" required />
     <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="描述" />
     <textarea value={persuasion} onChange={(e) => setPersuasion(e.target.value)} placeholder="說服區：為什麼值得答應？" />
     <div className="form-grid"><label>渴望程度<input type="range" min="1" max="5" value={desireLevel} onChange={(e) => setDesireLevel(Number(e.target.value))} /></label><select value={urgency} onChange={(e) => setUrgency(e.target.value as UrgencyLevel)}><option value="low">不急</option><option value="medium">普通</option><option value="high">有點急</option><option value="urgent">現在就要</option></select></div>
     <div className="form-grid"><input value={estimatedPrice} onChange={(e) => setEstimatedPrice(e.target.value)} placeholder="預估金額" inputMode="numeric" /><input value={purchaseURL} onChange={(e) => setPurchaseURL(e.target.value)} placeholder="購買連結" /></div>
+    <label className="check-row"><input type="checkbox" checked={selfPurchase} onChange={(e) => setSelfPurchase(e.target.checked)} />我想自己買，用點數換取購買權</label>
     <button className="primary">送出願望</button>
   </form>
 }
@@ -269,11 +362,12 @@ function WishCard({ wish, user, totalFund, reviewer, run }: { wish: Wish; user: 
     {wish.persuasion && <blockquote>{wish.persuasion}</blockquote>}
     {wish.estimatedPrice ? <div className="fund-mini"><div><span>目標 {money(wish.estimatedPrice)}</span><span>{totalFund >= wish.estimatedPrice ? '已可購買' : `還差 ${money(wish.estimatedPrice - totalFund)}`}</span></div><progress max="1" value={progress} /></div> : null}
     {wish.purchaseURL && <a href={wish.purchaseURL} target="_blank" rel="noreferrer">查看連結</a>}
+    {wish.selfPurchase && <p className="intent-text">想自己買：對方可設定多少點數可換購買權。</p>}
     {wish.rejectionReason && <p className="danger-text">駁回原因：{wish.rejectionReason}</p>}
-    {wish.deferredPoints ? <p className="muted">暫緩門檻：{wish.deferredPoints} 點</p> : null}
-    {reviewer && wish.status === 'pending' && <div className="actions"><button onClick={() => run(() => updateWishStatus(wish.id, 'approved'))}><Check size={16} />同意</button><button onClick={() => run(() => updateWishStatus(wish.id, 'rejected', { rejectionReason: reason || '目前先不適合' }))}><X size={16} />駁回</button><button onClick={() => run(() => updateWishStatus(wish.id, 'deferred', { deferredPoints: points }))}>暫緩</button></div>}
-    {reviewer && wish.status === 'pending' && <div className="inline-fields"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="駁回原因" /><input value={points} onChange={(e) => setPoints(Number(e.target.value))} type="number" min="1" /></div>}
-    {!reviewer && wish.status === 'deferred' && <button className="primary compact" onClick={() => run(() => redeemWish(wish, user))}>用 {wish.deferredPoints} 點兌換</button>}
+    {wish.deferredPoints ? <p className="muted">{wish.selfPurchase ? '購買權門檻' : '暫緩門檻'}：{wish.deferredPoints} 點</p> : null}
+    {reviewer && wish.status === 'pending' && <div className="actions"><button onClick={() => run(() => updateWishStatus(wish.id, 'approved'))}><Check size={16} />同意</button><button onClick={() => run(() => updateWishStatus(wish.id, 'rejected', { rejectionReason: reason || '目前先不適合' }))}><X size={16} />駁回</button><button onClick={() => run(() => updateWishStatus(wish.id, 'deferred', { deferredPoints: points }))}>{wish.selfPurchase ? '設定點數可買' : '暫緩'}</button></div>}
+    {reviewer && wish.status === 'pending' && <div className="inline-fields"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="駁回原因" /><input value={points} onChange={(e) => setPoints(Number(e.target.value))} type="number" min="1" aria-label={wish.selfPurchase ? '可自己買所需點數' : '暫緩所需點數'} /></div>}
+    {!reviewer && wish.status === 'deferred' && <button className="primary compact" onClick={() => run(() => redeemWish(wish, user))}>用 {wish.deferredPoints} 點{wish.selfPurchase ? '換自己買' : '兌換'}</button>}
   </article>
 }
 
@@ -281,23 +375,92 @@ function TaskPanel({ user, tasks, run }: { user: AppUser; tasks: ChoreTask[]; ru
   const [title, setTitle] = useState('')
   const [points, setPoints] = useState(5)
   const [recurrence, setRecurrence] = useState<TaskRecurrence>('once')
-  const [note, setNote] = useState('')
-  return <section className="stack"><Header title="打工區" subtitle="建立任務、申請點數，對方確認後自動入帳。" />
-    <GuideCard title="打工區怎麼用" steps={['先建立任務，選擇單次、每日、每週或每月週期。', '設定「每次完成」可拿多少點數，對方完成後再申請點數。', '任務建立者確認後，點數會加到申請者帳號，並出現在點數紀錄。']} />
-    <form className="compose task-form" onSubmit={(e) => { e.preventDefault(); run(async () => { await addTask({ coupleId: user.coupleId!, creatorId: user.id, title, points, recurrence }); setTitle('') }) }}>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="任務名稱，例如洗碗、倒垃圾、陪跑步" required />
-      <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as TaskRecurrence)} aria-label="任務週期">
-        <option value="once">單次</option>
-        <option value="daily">每日</option>
-        <option value="weekly">每週</option>
-        <option value="monthly">每月</option>
-      </select>
-      <input type="number" min="1" value={points} onChange={(e) => setPoints(Number(e.target.value))} aria-label="每次完成可拿點數" />
-      <button className="primary">新增任務</button>
-    </form>
-    <div className="card-list">{tasks.map((task) => <article className="task-row" key={task.id}><div><strong>{task.title}</strong><span>{recurrenceLabel[task.recurrence || 'once']} · 每次完成 {task.points} 點 · {task.status}</span>{task.claimNote && <p>{task.claimNote}</p>}</div><div className="actions">{task.status === 'available' && task.creatorId !== user.id && <button onClick={() => run(() => claimTask(task.id, user.id, note || '已完成'))}>申請點數</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => approveTask(task))}>確認給點</button>}{task.status === 'claimed' && task.creatorId === user.id && <button onClick={() => run(() => rejectTask(task.id, '需要再確認'))}>退回</button>}</div></article>)}{tasks.length === 0 && <Empty text="目前沒有任務" />}</div>
-    <input className="wide-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="申請點數備註" />
-  </section>
+  const [claimNote, setClaimNote] = useState('')
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportTitle, setReportTitle] = useState('')
+  const [reportNote, setReportNote] = useState('')
+  const [reportPoints, setReportPoints] = useState(5)
+
+  return (
+    <section className="stack">
+      <Header
+        title="打工區"
+        subtitle="建立任務、自行申報完成的工作，對方確認後自動入帳。"
+        action={<button className="primary compact" onClick={() => setReportOpen(!reportOpen)}><Plus size={16} />{reportOpen ? '收起申報' : '申報完成'}</button>}
+      />
+      <GuideCard title="打工區怎麼用" steps={[
+        '由其中一方建立任務，選擇週期與點數，對方領取完成後申請點數。',
+        '也可點「申報完成」填寫今天做了什麼，建議點數由對方審核後決定是否給點。',
+        '點數一旦審核通過，自動計入帳戶並出現在點數紀錄。',
+      ]} />
+      {reportOpen && (
+        <form className="compose" onSubmit={(e) => {
+          e.preventDefault()
+          run(async () => {
+            await addSelfReport({ coupleId: user.coupleId!, userId: user.id, title: reportTitle, note: reportNote, points: reportPoints })
+            setReportTitle('')
+            setReportNote('')
+            setReportPoints(5)
+            setReportOpen(false)
+          })
+        }}>
+          <strong>申報今天完成了什麼</strong>
+          <input value={reportTitle} onChange={(e) => setReportTitle(e.target.value)} placeholder="我做了什麼（例如：掃廁所、陪跑步）" required />
+          <textarea value={reportNote} onChange={(e) => setReportNote(e.target.value)} placeholder="補充說明（選填）" />
+          <div className="form-grid">
+            <input type="number" min="1" value={reportPoints} onChange={(e) => setReportPoints(Number(e.target.value))} placeholder="建議點數" aria-label="建議點數" />
+          </div>
+          <button className="primary">送出申報</button>
+        </form>
+      )}
+      <form className="compose task-form" onSubmit={(e) => { e.preventDefault(); run(async () => { await addTask({ coupleId: user.coupleId!, creatorId: user.id, title, points, recurrence }); setTitle('') }) }}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="新增任務，例如洗碗、倒垃圾、陪跑步" required />
+        <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as TaskRecurrence)} aria-label="任務週期">
+          <option value="once">單次</option>
+          <option value="daily">每日</option>
+          <option value="weekly">每週</option>
+          <option value="monthly">每月</option>
+        </select>
+        <input type="number" min="1" value={points} onChange={(e) => setPoints(Number(e.target.value))} aria-label="每次完成可拿點數" />
+        <button className="primary">新增任務</button>
+      </form>
+      <input className="wide-input" value={claimNote} onChange={(e) => setClaimNote(e.target.value)} placeholder="申請點數備註（接取任務時附加說明）" />
+      <div className="card-list">
+        {tasks.map((task) => <TaskRow key={task.id} task={task} user={user} claimNote={claimNote} run={run} />)}
+        {tasks.length === 0 && <Empty text="目前沒有任務" />}
+      </div>
+    </section>
+  )
+}
+
+function TaskRow({ task, user, claimNote, run }: { task: ChoreTask; user: AppUser; claimNote: string; run: (task: () => Promise<void>) => void }) {
+  const isClaimer = task.claimerId === user.id
+  const isCreator = task.creatorId === user.id
+  const canClaim = task.status === 'available' && !isCreator && !task.selfReport
+  const canReview = task.status === 'claimed' && (task.selfReport ? !isClaimer : isCreator)
+
+  return (
+    <article className="task-row">
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <strong>{task.title}</strong>
+          {task.selfReport && <span className="chip" style={{ background: 'rgba(111, 182, 154, 0.18)', color: '#276b52', fontSize: '0.78rem' }}>自行申報</span>}
+        </div>
+        <span>
+          {task.selfReport
+            ? `建議 ${task.points} 點 · ${taskStatusLabel[task.status]}`
+            : `${recurrenceLabel[task.recurrence || 'once']} · 每次完成 ${task.points} 點 · ${taskStatusLabel[task.status]}`}
+        </span>
+        {task.claimNote && <p>{task.claimNote}</p>}
+        {task.rejectionReason && <p className="danger-text">退回原因：{task.rejectionReason}</p>}
+      </div>
+      <div className="actions">
+        {canClaim && <button onClick={() => run(() => claimTask(task.id, user.id, claimNote || '已完成'))}>申請點數</button>}
+        {canReview && <button onClick={() => run(() => approveTask(task))}>確認給點</button>}
+        {canReview && <button onClick={() => run(() => rejectTask(task.id, '需要再確認'))}>退回</button>}
+      </div>
+    </article>
+  )
 }
 
 function MessagePanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
@@ -322,8 +485,8 @@ function MessagePanel({ user, data, run }: { user: AppUser; data: CoupleData; ru
 
 function PointsPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
   const redeemable = data.wishes.filter((wish) => wish.authorId === user.id && wish.status === 'deferred')
-  return <section className="stack"><Header title="點數總覽" subtitle="點數不可轉讓，只能用來兌換暫緩願望。" />
-    <GuideCard title="點數區怎麼用" steps={['點數主要透過完成打工區任務取得。', '只有自己的點數能兌換自己的暫緩願望，不能轉給對方。', '兌換後會扣點，並在右側紀錄中留下消費紀錄。']} />
+  return <section className="stack"><Header title="點數總覽" subtitle="點數主要用來換取自己購買權，或兌換被暫緩的願望。" />
+    <GuideCard title="點數區怎麼用" steps={['點數主要透過完成打工區任務取得。', '想自己買的願望可由對方設定點數門檻，點數足夠後自行兌換。', '兌換後會扣點，並在右側紀錄中留下消費紀錄。']} />
     <div className="points-hero"><Sparkles /><strong>{user.points}</strong><span>目前可用點數</span></div>
     <div className="columns"><div className="column"><h2>可兌換願望</h2>{redeemable.map((wish) => <article className="task-row" key={wish.id}><div><strong>{wish.title}</strong><span>需要 {wish.deferredPoints} 點</span></div><button onClick={() => run(() => redeemWish(wish, user))}>兌換</button></article>)}{redeemable.length === 0 && <Empty text="沒有可兌換項目" />}</div><div className="column"><h2>點數紀錄</h2>{data.transactions.map((tx) => <article className="task-row" key={tx.id}><div><strong>{tx.reason}</strong><span>{new Date(tx.createdAt).toLocaleString('zh-TW')}</span></div><b className={tx.amount > 0 ? 'gain' : 'spend'}>{tx.amount > 0 ? '+' : ''}{tx.amount}</b></article>)}</div></div></section>
 }

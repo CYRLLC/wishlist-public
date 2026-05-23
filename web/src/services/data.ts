@@ -53,6 +53,7 @@ const seed: LocalState = {
       estimatedPrice: 6200,
       purchaseURL: '',
       imageURLs: [],
+      selfPurchase: true,
       status: 'deferred',
       deferredPoints: 30,
       createdAt: Date.now() - 900000,
@@ -70,6 +71,7 @@ const seed: LocalState = {
       estimatedPrice: 3800,
       purchaseURL: '',
       imageURLs: [],
+      selfPurchase: false,
       status: 'pending',
       createdAt: Date.now() - 600000,
       updatedAt: Date.now() - 600000,
@@ -247,7 +249,7 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
 }
 
 export async function addWish(input: Omit<Wish, 'id' | 'status' | 'imageURLs' | 'createdAt' | 'updatedAt'>) {
-  const wish: Wish = { ...input, id: id(), imageURLs: [], status: 'pending', createdAt: now(), updatedAt: now() }
+  const wish: Wish = { ...input, selfPurchase: input.selfPurchase || false, id: id(), imageURLs: [], status: 'pending', createdAt: now(), updatedAt: now() }
   if (!isFirebaseConfigured || !db) {
     const state = readLocal(); state.wishes.push(wish); writeLocal(state); return wish
   }
@@ -273,7 +275,7 @@ export async function redeemWish(wish: Wish, user: AppUser) {
     const state = readLocal()
     state.wishes = state.wishes.map((item) => item.id === wish.id ? { ...item, status: 'redeemed', updatedAt: now() } : item)
     state.users = state.users.map((item) => item.id === user.id ? { ...item, points: item.points - cost } : item)
-    state.transactions.push({ id: id(), userId: user.id, coupleId: wish.coupleId, amount: -cost, reason: `兌換願望：${wish.title}`, relatedId: wish.id, createdAt: now() })
+    state.transactions.push({ id: id(), userId: user.id, coupleId: wish.coupleId, amount: -cost, reason: `兌換自己購買權：${wish.title}`, relatedId: wish.id, createdAt: now() })
     writeLocal(state)
     return
   }
@@ -285,8 +287,30 @@ export async function redeemWish(wish: Wish, user: AppUser) {
     const txRef = doc(firestore, 'transactions', id())
     transaction.update(userRef, { points: increment(-cost) })
     transaction.update(wishRef, { status: 'redeemed', updatedAt: now() })
-    transaction.set(txRef, { id: txRef.id, userId: user.id, coupleId: wish.coupleId, amount: -cost, reason: `兌換願望：${wish.title}`, relatedId: wish.id, createdAt: now() })
+    transaction.set(txRef, { id: txRef.id, userId: user.id, coupleId: wish.coupleId, amount: -cost, reason: `兌換自己購買權：${wish.title}`, relatedId: wish.id, createdAt: now() })
   })
+}
+
+export async function addSelfReport(input: { coupleId: string; userId: string; title: string; note: string; points: number }) {
+  const task: ChoreTask = {
+    id: id(),
+    coupleId: input.coupleId,
+    creatorId: input.userId,
+    claimerId: input.userId,
+    title: input.title,
+    points: input.points,
+    recurrence: 'once',
+    status: 'claimed',
+    selfReport: true,
+    claimNote: input.note || undefined,
+    createdAt: now(),
+    claimedAt: now(),
+  }
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.tasks.push(task); writeLocal(state); return task
+  }
+  await setDoc(doc(db, 'tasks', task.id), task)
+  return task
 }
 
 export async function addTask(input: Omit<ChoreTask, 'id' | 'status' | 'createdAt'>) {
