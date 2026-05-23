@@ -302,7 +302,7 @@ export async function addSelfReport(input: { coupleId: string; userId: string; t
     recurrence: 'once',
     status: 'claimed',
     selfReport: true,
-    claimNote: input.note || undefined,
+    ...(input.note ? { claimNote: input.note } : {}),
     createdAt: now(),
     claimedAt: now(),
   }
