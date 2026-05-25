@@ -50,6 +50,13 @@ function App() {
   const [activeTab, setActiveTab] = useState('wishes')
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('wishlink-theme') === 'dark')
 
+  const effectivePoints = useMemo(
+    () => isFirebaseConfigured
+      ? data.transactions.reduce((sum, tx) => sum + tx.amount, 0)
+      : (user?.points ?? 0),
+    [data.transactions, user?.points]
+  )
+
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
   }, [darkMode])
@@ -179,10 +186,10 @@ function App() {
           {error && <div className="error">{error}</div>}
           <NotificationCenter notifications={notifications} enabled={browserNoticeEnabled} onEnable={enableBrowserNotifications} onClear={() => setNotifications([])} />
           <CoupleSummary user={user} partner={data.partner} />
-          {activeTab === 'wishes' && <WishPanel user={user} data={data} run={run} />}
+          {activeTab === 'wishes' && <WishPanel user={{ ...user, points: effectivePoints }} data={data} run={run} />}
           {activeTab === 'tasks' && <TaskPanel user={user} tasks={data.tasks} run={run} />}
           {activeTab === 'messages' && <MessagePanel user={user} data={data} run={run} />}
-          {activeTab === 'points' && <PointsPanel user={user} data={data} run={run} />}
+          {activeTab === 'points' && <PointsPanel user={{ ...user, points: effectivePoints }} data={data} run={run} />}
           {activeTab === 'fund' && <FundPanel user={user} data={data} run={run} />}
           {activeTab === 'profile' && <ProfilePanel user={user} partner={data.partner} />}
         </main>

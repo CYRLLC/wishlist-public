@@ -9,7 +9,6 @@ import {
   collection,
   doc,
   getDoc,
-  increment,
   onSnapshot,
   query,
   runTransaction,
@@ -282,10 +281,8 @@ export async function redeemWish(wish: Wish, user: AppUser) {
 
   const firestore = db
   await runTransaction(firestore, async (transaction) => {
-    const userRef = doc(firestore, 'users', user.id)
     const wishRef = doc(firestore, 'wishes', wish.id)
     const txRef = doc(firestore, 'transactions', id())
-    transaction.update(userRef, { points: increment(-cost) })
     transaction.update(wishRef, { status: 'redeemed', updatedAt: now() })
     transaction.set(txRef, { id: txRef.id, userId: user.id, coupleId: wish.coupleId, amount: -cost, reason: `兌換自己購買權：${wish.title}`, relatedId: wish.id, createdAt: now() })
   })
@@ -345,7 +342,6 @@ export async function approveTask(task: ChoreTask) {
   await runTransaction(firestore, async (transaction) => {
     const txRef = doc(firestore, 'transactions', id())
     transaction.update(doc(firestore, 'tasks', task.id), { status: 'approved' })
-    transaction.update(doc(firestore, 'users', task.claimerId!), { points: increment(task.points) })
     transaction.set(txRef, { id: txRef.id, userId: task.claimerId, coupleId: task.coupleId, amount: task.points, reason: `完成任務：${task.title}`, relatedId: task.id, createdAt: now() })
   })
 }
