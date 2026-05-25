@@ -9,6 +9,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   runTransaction,
@@ -130,7 +131,17 @@ export function observeAuth(onUser: (user: AppUser | null) => void) {
   return onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
     if (!fbUser) return onUser(null)
     const snap = await getDoc(doc(firestore, 'users', fbUser.uid))
-    onUser(snap.exists() ? ({ id: snap.id, ...snap.data() } as AppUser) : null)
+    if (!snap.exists()) return onUser(null)
+    const userData = { id: snap.id, ...snap.data() } as AppUser
+    if (!userData.coupleId) {
+      const couplesSnap = await getDocs(query(collection(firestore, 'couples'), where('members', 'array-contains', fbUser.uid)))
+      if (!couplesSnap.empty) {
+        const coupleId = couplesSnap.docs[0].id
+        await updateDoc(doc(firestore, 'users', fbUser.uid), { coupleId })
+        userData.coupleId = coupleId
+      }
+    }
+    onUser(userData)
   })
 }
 
@@ -191,14 +202,12 @@ export async function pairWithInviteCode(user: AppUser, partnerCode: string) {
     return coupleId
   }
 
-  const partnerRef = doc(db, 'users', partnerCode)
-  const meRef = doc(db, 'users', user.id)
-  const partnerSnap = await getDoc(partnerRef)
+  const partnerSnap = await getDoc(doc(db, 'users', partnerCode))
   if (!partnerSnap.exists()) throw new Error('找不到這個邀請碼')
   const coupleId = id()
   await setDoc(doc(db, 'couples', coupleId), { id: coupleId, members: [user.id, partnerCode], createdAt: now() })
-  await updateDoc(meRef, { coupleId })
-  await updateDoc(partnerRef, { coupleId })
+  await updateDoc(doc(db, 'users', user.id), { coupleId })
+  // Partner's coupleId is auto-detected from the couples collection on their next app load
   return coupleId
 }
 
