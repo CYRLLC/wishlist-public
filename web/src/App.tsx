@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Banknote, Bell, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Moon, Plus, Sparkles, Star, Sun, UserRound, X } from 'lucide-react'
+import { Banknote, Bell, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Moon, Pencil, Plus, Sparkles, Star, Sun, Trash2, UserRound, X } from 'lucide-react'
 import type { AppUser, ChoreTask, CoupleData, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
-import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWishStatus } from './services/data'
+import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, deleteFundEntry, deleteWish, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWish, updateWishStatus, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -344,25 +344,130 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   return <div className="metric"><span>{label}</span><strong>{value}</strong></div>
 }
 
-function WishForm({ user, onSubmit }: { user: AppUser; onSubmit: (wish: Parameters<typeof addWish>[0]) => void }) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [persuasion, setPersuasion] = useState('')
-  const [desireLevel, setDesireLevel] = useState(3)
-  const [urgency, setUrgency] = useState<UrgencyLevel>('medium')
-  const [estimatedPrice, setEstimatedPrice] = useState('')
-  const [purchaseURL, setPurchaseURL] = useState('')
-  const [selfPurchase, setSelfPurchase] = useState(false)
+function WishForm({
+  user,
+  onSubmit,
+  initialValues,
+  submitLabel = '送出願望',
+  onCancel,
+}: {
+  user: AppUser
+  onSubmit: (wish: Parameters<typeof addWish>[0]) => void
+  initialValues?: Partial<Wish>
+  submitLabel?: string
+  onCancel?: () => void
+}) {
+  const [title, setTitle] = useState(initialValues?.title ?? '')
+  const [description, setDescription] = useState(initialValues?.description ?? '')
+  const [persuasion, setPersuasion] = useState(initialValues?.persuasion ?? '')
+  const [desireLevel, setDesireLevel] = useState(initialValues?.desireLevel ?? 3)
+  const [urgency, setUrgency] = useState<UrgencyLevel>(initialValues?.urgency ?? 'medium')
+  const [estimatedPrice, setEstimatedPrice] = useState(initialValues?.estimatedPrice?.toString() ?? '')
+  const [purchaseURL, setPurchaseURL] = useState(initialValues?.purchaseURL ?? '')
+  const [selfPurchase, setSelfPurchase] = useState(initialValues?.selfPurchase ?? false)
+  const [existingURLs, setExistingURLs] = useState<string[]>(initialValues?.imageURLs ?? [])
+  const [newFiles, setNewFiles] = useState<File[]>([])
+  const [previews, setPreviews] = useState<string[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
 
-  return <form className="compose" onSubmit={(event) => { event.preventDefault(); onSubmit({ authorId: user.id, coupleId: user.coupleId!, title, description, persuasion, desireLevel, urgency, estimatedPrice: estimatedPrice ? Number(estimatedPrice) : null, purchaseURL, selfPurchase }) }}>
-    <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="願望名稱" required />
-    <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="描述" />
-    <textarea value={persuasion} onChange={(e) => setPersuasion(e.target.value)} placeholder="說服區：為什麼值得答應？" />
-    <div className="form-grid"><label>渴望程度<input type="range" min="1" max="5" value={desireLevel} onChange={(e) => setDesireLevel(Number(e.target.value))} /></label><select value={urgency} onChange={(e) => setUrgency(e.target.value as UrgencyLevel)}><option value="low">不急</option><option value="medium">普通</option><option value="high">有點急</option><option value="urgent">現在就要</option></select></div>
-    <div className="form-grid"><input value={estimatedPrice} onChange={(e) => setEstimatedPrice(e.target.value)} placeholder="預估金額" inputMode="numeric" /><input value={purchaseURL} onChange={(e) => setPurchaseURL(e.target.value)} placeholder="購買連結" /></div>
-    <label className="check-row"><input type="checkbox" checked={selfPurchase} onChange={(e) => setSelfPurchase(e.target.checked)} />我想自己買，用點數換取購買權</label>
-    <button className="primary">送出願望</button>
-  </form>
+  const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const slots = 3 - existingURLs.length - newFiles.length
+    const files = Array.from(e.target.files || []).slice(0, slots)
+    setNewFiles((prev) => [...prev, ...files].slice(0, 3 - existingURLs.length))
+    setPreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))].slice(0, 3 - existingURLs.length))
+    e.target.value = ''
+  }
+
+  const removeExisting = (url: string) => setExistingURLs((prev) => prev.filter((u) => u !== url))
+  const removeNew = (i: number) => {
+    setNewFiles((prev) => prev.filter((_, idx) => idx !== i))
+    setPreviews((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setUploading(true)
+    setUploadError('')
+    try {
+      const newURLs = await Promise.all(newFiles.map(uploadWishImage))
+      onSubmit({
+        authorId: initialValues?.authorId ?? user.id,
+        coupleId: initialValues?.coupleId ?? user.coupleId!,
+        title, description, persuasion, desireLevel, urgency,
+        estimatedPrice: estimatedPrice ? Number(estimatedPrice) : null,
+        purchaseURL, selfPurchase,
+        imageURLs: [...existingURLs, ...newURLs],
+      })
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : '圖片上傳失敗')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const canAddMore = existingURLs.length + newFiles.length < 3
+
+  return (
+    <form className="compose" onSubmit={handleSubmit}>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="願望名稱" required />
+      <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="描述一下想要什麼" />
+      <textarea value={persuasion} onChange={(e) => setPersuasion(e.target.value)} placeholder="說服區：為什麼值得答應？" />
+      <div className="form-grid">
+        <div>
+          <div style={{ fontSize: '0.88rem', color: 'var(--muted)', marginBottom: '6px' }}>渴望程度</div>
+          <div className="desire-row">
+            {[1, 2, 3, 4, 5].map((level) => (
+              <button key={level} type="button" className={desireLevel >= level ? 'desire-btn active' : 'desire-btn'} onClick={() => setDesireLevel(level)}>★</button>
+            ))}
+          </div>
+        </div>
+        <select value={urgency} onChange={(e) => setUrgency(e.target.value as UrgencyLevel)}>
+          <option value="low">不急</option>
+          <option value="medium">普通</option>
+          <option value="high">有點急</option>
+          <option value="urgent">現在就要</option>
+        </select>
+      </div>
+      <div className="form-grid">
+        <input value={estimatedPrice} onChange={(e) => setEstimatedPrice(e.target.value)} placeholder="預估金額" inputMode="numeric" />
+        <input value={purchaseURL} onChange={(e) => setPurchaseURL(e.target.value)} placeholder="購買連結" />
+      </div>
+      <label className="check-row">
+        <input type="checkbox" checked={selfPurchase} onChange={(e) => setSelfPurchase(e.target.checked)} />
+        我想自己買，用點數換取購買權
+      </label>
+      <div>
+        {(existingURLs.length > 0 || previews.length > 0) && (
+          <div className="image-previews">
+            {existingURLs.map((url) => (
+              <div key={url} className="preview-item">
+                <img src={url} alt="" />
+                <button type="button" className="preview-remove" onClick={() => removeExisting(url)}>×</button>
+              </div>
+            ))}
+            {previews.map((src, i) => (
+              <div key={i} className="preview-item">
+                <img src={src} alt="" />
+                <button type="button" className="preview-remove" onClick={() => removeNew(i)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {canAddMore && (
+          <label className="file-label">
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFiles} />
+            選擇圖片（最多 3 張）
+          </label>
+        )}
+      </div>
+      {uploadError && <p className="form-error">{uploadError}</p>}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button className="primary" type="submit" disabled={uploading} style={{ flex: 1 }}>{uploading ? '上傳中...' : submitLabel}</button>
+        {onCancel && <button type="button" className="ghost" onClick={onCancel}>取消</button>}
+      </div>
+    </form>
+  )
 }
 
 function WishColumn({ title, wishes, user, totalFund, run, reviewer = false }: { title: string; wishes: Wish[]; user: AppUser; totalFund: number; run: (task: () => Promise<void>) => void; reviewer?: boolean }) {
@@ -372,22 +477,64 @@ function WishColumn({ title, wishes, user, totalFund, run, reviewer = false }: {
 function WishCard({ wish, user, totalFund, reviewer, run }: { wish: Wish; user: AppUser; totalFund: number; reviewer: boolean; run: (task: () => Promise<void>) => void }) {
   const [reason, setReason] = useState('')
   const [points, setPoints] = useState(wish.deferredPoints || 20)
+  const [editing, setEditing] = useState(false)
   const progress = wish.estimatedPrice ? Math.min(totalFund / wish.estimatedPrice, 1) : 0
+  const isAuthor = wish.authorId === user.id
+  const canEdit = isAuthor && !['redeemed', 'completed'].includes(wish.status)
 
-  return <article className="wish-card">
-    <div className="card-top"><span className={`chip ${wish.status}`}>{statusLabel[wish.status]}</span><span>{'★'.repeat(wish.desireLevel)} · {urgencyLabel[wish.urgency]}</span></div>
-    <h3>{wish.title}</h3>
-    <p>{wish.description}</p>
-    {wish.persuasion && <blockquote>{wish.persuasion}</blockquote>}
-    {wish.estimatedPrice ? <div className="fund-mini"><div><span>目標 {money(wish.estimatedPrice)}</span><span>{totalFund >= wish.estimatedPrice ? '已可購買' : `還差 ${money(wish.estimatedPrice - totalFund)}`}</span></div><progress max="1" value={progress} /></div> : null}
-    {wish.purchaseURL && <a href={wish.purchaseURL} target="_blank" rel="noreferrer">查看連結</a>}
-    {wish.selfPurchase && <p className="intent-text">想自己買：對方可設定多少點數可換購買權。</p>}
-    {wish.rejectionReason && <p className="danger-text">駁回原因：{wish.rejectionReason}</p>}
-    {wish.deferredPoints ? <p className="muted">{wish.selfPurchase ? '購買權門檻' : '暫緩門檻'}：{wish.deferredPoints} 點</p> : null}
-    {reviewer && wish.status === 'pending' && <div className="actions"><button onClick={() => run(() => updateWishStatus(wish.id, 'approved'))}><Check size={16} />同意</button><button onClick={() => run(() => updateWishStatus(wish.id, 'rejected', { rejectionReason: reason || '目前先不適合' }))}><X size={16} />駁回</button><button onClick={() => run(() => updateWishStatus(wish.id, 'deferred', { deferredPoints: points }))}>{wish.selfPurchase ? '設定點數可買' : '暫緩'}</button></div>}
-    {reviewer && wish.status === 'pending' && <div className="inline-fields"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="駁回原因" /><input value={points} onChange={(e) => setPoints(Number(e.target.value))} type="number" min="1" aria-label={wish.selfPurchase ? '可自己買所需點數' : '暫緩所需點數'} /></div>}
-    {!reviewer && wish.status === 'deferred' && <button className="primary compact" onClick={() => run(() => redeemWish(wish, user))}>用 {wish.deferredPoints} 點{wish.selfPurchase ? '換自己買' : '兌換'}</button>}
-  </article>
+  if (editing) {
+    return (
+      <WishForm
+        user={user}
+        initialValues={wish}
+        submitLabel="儲存變更"
+        onSubmit={(input) => run(async () => {
+          await updateWish(wish.id, {
+            title: input.title, description: input.description, persuasion: input.persuasion,
+            desireLevel: input.desireLevel, urgency: input.urgency, estimatedPrice: input.estimatedPrice,
+            purchaseURL: input.purchaseURL, selfPurchase: input.selfPurchase, imageURLs: input.imageURLs,
+          })
+          setEditing(false)
+        })}
+        onCancel={() => setEditing(false)}
+      />
+    )
+  }
+
+  return (
+    <article className="wish-card">
+      <div className="card-top">
+        <span className={`chip ${wish.status}`}>{statusLabel[wish.status]}</span>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span>{'★'.repeat(wish.desireLevel)} · {urgencyLabel[wish.urgency]}</span>
+          {canEdit && (
+            <>
+              <button className="ghost" style={{ minHeight: 'auto', padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => setEditing(true)}><Pencil size={13} /></button>
+              <button className="ghost" style={{ minHeight: 'auto', padding: '4px 8px', color: 'var(--rose-dark)' }} onClick={() => { if (window.confirm('確定要刪除這個願望？')) run(() => deleteWish(wish.id)) }}><Trash2 size={13} /></button>
+            </>
+          )}
+        </div>
+      </div>
+      <h3>{wish.title}</h3>
+      <p>{wish.description}</p>
+      {wish.persuasion && <blockquote>{wish.persuasion}</blockquote>}
+      {wish.imageURLs && wish.imageURLs.length > 0 && (
+        <div className="wish-images">
+          {wish.imageURLs.map((url) => (
+            <img key={url} src={url} alt="" onClick={() => window.open(url, '_blank')} />
+          ))}
+        </div>
+      )}
+      {wish.estimatedPrice ? <div className="fund-mini"><div><span>目標 {money(wish.estimatedPrice)}</span><span>{totalFund >= wish.estimatedPrice ? '已可購買' : `還差 ${money(wish.estimatedPrice - totalFund)}`}</span></div><progress max="1" value={progress} /></div> : null}
+      {wish.purchaseURL && <a href={wish.purchaseURL} target="_blank" rel="noreferrer">查看連結</a>}
+      {wish.selfPurchase && <p className="intent-text">想自己買：對方可設定多少點數可換購買權。</p>}
+      {wish.rejectionReason && <p className="danger-text">駁回原因：{wish.rejectionReason}</p>}
+      {wish.deferredPoints ? <p className="muted">{wish.selfPurchase ? '購買權門檻' : '暫緩門檻'}：{wish.deferredPoints} 點</p> : null}
+      {reviewer && wish.status === 'pending' && <div className="actions"><button onClick={() => run(() => updateWishStatus(wish.id, 'approved'))}><Check size={16} />同意</button><button onClick={() => run(() => updateWishStatus(wish.id, 'rejected', { rejectionReason: reason || '目前先不適合' }))}><X size={16} />駁回</button><button onClick={() => run(() => updateWishStatus(wish.id, 'deferred', { deferredPoints: points }))}>{wish.selfPurchase ? '設定點數可買' : '暫緩'}</button></div>}
+      {reviewer && wish.status === 'pending' && <div className="inline-fields"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="駁回原因" /><input value={points} onChange={(e) => setPoints(Number(e.target.value))} type="number" min="1" aria-label={wish.selfPurchase ? '可自己買所需點數' : '暫緩所需點數'} /></div>}
+      {!reviewer && wish.status === 'deferred' && <button className="primary compact" onClick={() => run(() => redeemWish(wish, user))}>用 {wish.deferredPoints} 點{wish.selfPurchase ? '換自己買' : '兌換'}</button>}
+    </article>
+  )
 }
 
 function TaskPanel({ user, tasks, run }: { user: AppUser; tasks: ChoreTask[]; run: (task: () => Promise<void>) => void }) {
@@ -513,14 +660,73 @@ function PointsPanel({ user, data, run }: { user: AppUser; data: CoupleData; run
 function FundPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
-  const total = data.fundEntries.reduce((sum, entry) => sum + entry.amount, 0)
-  const pricedWishes = useMemo(() => data.wishes.filter((wish) => wish.estimatedPrice).sort((a, b) => (a.estimatedPrice! - total) - (b.estimatedPrice! - total)), [data.wishes, total])
-  return <section className="stack"><Header title="資金區" subtitle="共同存款與願望價格連動，快速看見最接近完成的目標。" />
-    <GuideCard title="資金區怎麼用" steps={['每次存錢時手動新增金額與備註，雙方都看得到。', '願望有填預估金額時，這裡會顯示共同資金還差多少。', '目前只是共同記帳，不會連動銀行或付款。']} />
-    <div className="fund-hero"><span>目前共同資金</span><strong>{money(total)}</strong></div>
-    <form className="compose row" onSubmit={(e) => { e.preventDefault(); run(async () => { await addFundEntry({ coupleId: user.coupleId!, userId: user.id, amount: Number(amount), note }); setAmount(''); setNote('') }) }}><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="存入金額" inputMode="numeric" required /><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註" /><button className="primary">新增存入</button></form>
-    <div className="columns"><div className="column"><h2>願望資金比較</h2>{pricedWishes.map((wish) => <article className="task-row" key={wish.id}><div><strong>{wish.title}</strong><span>{wish.estimatedPrice && total >= wish.estimatedPrice ? '已可購買' : `還差 ${money((wish.estimatedPrice || 0) - total)}`}</span></div><b>{wish.estimatedPrice ? money(wish.estimatedPrice) : '-'}</b></article>)}</div><div className="column"><h2>存入記錄</h2>{data.fundEntries.map((entry) => <article className="task-row" key={entry.id}><div><strong>{money(entry.amount)}</strong><span>{entry.note || '無備註'}</span></div></article>)}</div></div>
-  </section>
+  const [payerId, setPayerId] = useState(user.id)
+  const partner = data.partner
+
+  const myTotal = useMemo(() => data.fundEntries.filter((e) => e.userId === user.id).reduce((sum, e) => sum + e.amount, 0), [data.fundEntries, user.id])
+  const partnerTotal = useMemo(() => data.fundEntries.filter((e) => partner && e.userId === partner.id).reduce((sum, e) => sum + e.amount, 0), [data.fundEntries, partner])
+  const net = myTotal - partnerTotal
+  const owedAmount = Math.abs(net) / 2
+  const myName = user.nickname || '我'
+  const partnerName = partner?.nickname || '對方'
+  const payerName = (userId: string) => userId === user.id ? myName : partnerName
+
+  return (
+    <section className="stack">
+      <Header title="費用分帳" subtitle="記錄誰付了什麼，自動計算誰欠誰多少，像 Tricount 一樣簡單。" />
+      <GuideCard title="分帳怎麼用" steps={[
+        '每次有人付款就新增一筆，選好是誰付的、金額和備註。',
+        '下方自動計算雙方各付多少、誰欠誰多少錢。',
+        '結清後可刪除舊記錄，從零開始下一輪計算。',
+      ]} />
+
+      <div className="compose balance-rows">
+        <strong>結算總覽</strong>
+        <div className="balance-row"><span>{myName} 支出</span><b>{money(myTotal)}</b></div>
+        {partner && <div className="balance-row"><span>{partnerName} 支出</span><b>{money(partnerTotal)}</b></div>}
+        <hr className="balance-divider" />
+        {owedAmount < 0.5
+          ? <div className="balance-result settle">已結清 ✓</div>
+          : net > 0
+            ? <div className="balance-result owes">{partnerName} 欠 {myName} {money(owedAmount)}</div>
+            : <div className="balance-result owes">{myName} 欠 {partnerName} {money(owedAmount)}</div>}
+      </div>
+
+      <form className="compose" onSubmit={(e) => {
+        e.preventDefault()
+        run(async () => {
+          await addFundEntry({ coupleId: user.coupleId!, userId: payerId, amount: Number(amount), note })
+          setAmount('')
+          setNote('')
+        })
+      }}>
+        <strong>新增支出</strong>
+        <div className="payer-toggle">
+          <button type="button" className={payerId === user.id ? 'payer-btn active' : 'payer-btn'} onClick={() => setPayerId(user.id)}>我付款</button>
+          <button type="button" className={partner && payerId === partner.id ? 'payer-btn active' : 'payer-btn'} onClick={() => { if (partner) setPayerId(partner.id) }} disabled={!partner}>{partnerName}付款</button>
+        </div>
+        <div className="form-grid">
+          <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金額" inputMode="numeric" required />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註（例如：晚餐、超市）" required />
+        </div>
+        <button className="primary compact">新增</button>
+      </form>
+
+      <div className="column">
+        <h2>費用記錄</h2>
+        {data.fundEntries.length === 0 && <Empty text="還沒有費用記錄" />}
+        {data.fundEntries.map((entry) => (
+          <article className="task-row" key={entry.id}>
+            <div>
+              <strong>{entry.note}</strong>
+              <span>{payerName(entry.userId)} 付 · {money(entry.amount)} · {new Date(entry.createdAt).toLocaleDateString('zh-TW')}</span>
+            </div>
+            <button className="ghost" style={{ minHeight: 'auto', padding: '6px 10px', color: 'var(--rose-dark)' }} onClick={() => run(() => deleteFundEntry(entry.id))}><Trash2 size={14} /></button>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 function ProfilePanel({ user, partner }: { user: AppUser; partner?: AppUser | null }) {

@@ -361,6 +361,34 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
 [data-theme="dark"] .empty,
 [data-theme="dark"] .loading { border-color: rgba(180, 160, 255, 0.18); }
 
+/* ─── Desire level buttons ─── */
+.desire-row { display: flex; gap: 6px; }
+.desire-btn { flex: 1; min-height: 38px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1.15rem; transition: all 120ms ease; padding: 0; }
+.desire-btn.active { background: var(--rose); color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(220, 91, 116, 0.28); }
+
+/* ─── Image upload & preview ─── */
+.image-previews { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.preview-item { position: relative; }
+.preview-item img { width: 76px; height: 76px; object-fit: cover; border-radius: 12px; display: block; }
+.preview-remove { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 999px; background: var(--rose); color: #fff; border: 0; font-size: 13px; display: grid; place-items: center; padding: 0; min-height: auto; line-height: 1; }
+.file-label { border: 2px dashed var(--line); border-radius: 14px; padding: 12px; text-align: center; cursor: pointer; color: var(--muted); font-size: 0.9rem; display: block; transition: border-color 120ms, color 120ms; }
+.file-label:hover { border-color: var(--rose); color: var(--rose-dark); }
+.wish-images { display: flex; gap: 8px; flex-wrap: wrap; }
+.wish-images img { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; cursor: pointer; }
+
+/* ─── Fund / Expense Split ─── */
+.payer-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.payer-btn { min-height: 40px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 800; transition: all 120ms ease; }
+.payer-btn.active { background: #2b1d18; color: #fff6ef; border-color: transparent; }
+.balance-rows { display: grid; gap: 10px; }
+.balance-row { display: flex; justify-content: space-between; align-items: center; }
+.balance-divider { border: 0; border-top: 1px solid var(--line); margin: 2px 0; }
+.balance-result { font-weight: 900; font-size: 1.05rem; }
+.balance-result.settle { color: #247d5d; }
+.balance-result.owes { color: var(--rose-dark); }
+[data-theme="dark"] .payer-btn.active { background: rgba(180, 150, 255, 0.2); color: var(--ink); }
+[data-theme="dark"] .balance-result.settle { color: #6dd4a0; }
+
 @media (prefers-reduced-motion: no-preference) {
   .auth-card, .pair-card, .workspace { animation: rise 520ms ease both; }
   .wish-card, .task-row, .metric { transition: transform 180ms ease, box-shadow 180ms ease; }

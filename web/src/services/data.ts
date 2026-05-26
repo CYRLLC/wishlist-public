@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth'
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -17,7 +18,8 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { auth, db, isFirebaseConfigured } from './firebase'
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
+import { auth, db, isFirebaseConfigured, storage } from './firebase'
 import type { AppUser, ChoreTask, CoupleData, CoupleMessage, FundEntry, PointTransaction, Wish, WishStatus } from '../types'
 
 export { isFirebaseConfigured } from './firebase'
@@ -256,13 +258,58 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
   return () => unsubs.forEach((unsub) => unsub())
 }
 
-export async function addWish(input: Omit<Wish, 'id' | 'status' | 'imageURLs' | 'createdAt' | 'updatedAt'>) {
-  const wish: Wish = { ...input, selfPurchase: input.selfPurchase || false, id: id(), imageURLs: [], status: 'pending', createdAt: now(), updatedAt: now() }
+export async function addWish(input: Omit<Wish, 'id' | 'status' | 'createdAt' | 'updatedAt'>) {
+  const wish: Wish = { ...input, selfPurchase: input.selfPurchase || false, id: id(), status: 'pending', createdAt: now(), updatedAt: now() }
   if (!isFirebaseConfigured || !db) {
     const state = readLocal(); state.wishes.push(wish); writeLocal(state); return wish
   }
   await setDoc(doc(db, 'wishes', wish.id), wish)
   return wish
+}
+
+export async function updateWish(wishId: string, patch: Partial<Omit<Wish, 'id' | 'authorId' | 'coupleId' | 'status' | 'createdAt' | 'updatedAt'>>) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.wishes = state.wishes.map((w) => w.id === wishId ? { ...w, ...patch, updatedAt: now() } : w)
+    writeLocal(state)
+    return
+  }
+  await updateDoc(doc(db, 'wishes', wishId), { ...patch, updatedAt: now() })
+}
+
+export async function deleteWish(wishId: string) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.wishes = state.wishes.filter((w) => w.id !== wishId)
+    writeLocal(state)
+    return
+  }
+  await deleteDoc(doc(db, 'wishes', wishId))
+}
+
+export async function deleteFundEntry(entryId: string) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.fundEntries = state.fundEntries.filter((e) => e.id !== entryId)
+    writeLocal(state)
+    return
+  }
+  await deleteDoc(doc(db, 'fund_entries', entryId))
+}
+
+export async function uploadWishImage(file: File): Promise<string> {
+  if (!isFirebaseConfigured || !storage) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error('圖片讀取失敗'))
+      reader.readAsDataURL(file)
+    })
+  }
+  const path = `wish-images/${id()}-${file.name}`
+  const ref = storageRef(storage, path)
+  const snapshot = await uploadBytes(ref, file)
+  return getDownloadURL(snapshot.ref)
 }
 
 export async function updateWishStatus(wishId: string, status: WishStatus, extra: Partial<Wish> = {}) {
