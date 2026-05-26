@@ -352,7 +352,7 @@ function WishForm({
   onCancel,
 }: {
   user: AppUser
-  onSubmit: (wish: Parameters<typeof addWish>[0]) => void
+  onSubmit: (wish: Parameters<typeof addWish>[0]) => void | Promise<void>
   initialValues?: Partial<Wish>
   submitLabel?: string
   onCancel?: () => void
@@ -385,13 +385,26 @@ function WishForm({
     setPreviews((prev) => prev.filter((_, idx) => idx !== i))
   }
 
+  const [saving, setSaving] = useState(false)
+  const busy = uploading || saving
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setUploading(true)
+    if (busy) return
     setUploadError('')
+    setUploading(true)
+    let newURLs: string[]
     try {
-      const newURLs = await Promise.all(newFiles.map(uploadWishImage))
-      onSubmit({
+      newURLs = await Promise.all(newFiles.map(uploadWishImage))
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : '圖片上傳失敗')
+      setUploading(false)
+      return
+    }
+    setUploading(false)
+    setSaving(true)
+    try {
+      await onSubmit({
         authorId: initialValues?.authorId ?? user.id,
         coupleId: initialValues?.coupleId ?? user.coupleId!,
         title, description, persuasion, desireLevel, urgency,
@@ -399,10 +412,12 @@ function WishForm({
         purchaseURL, selfPurchase,
         imageURLs: [...existingURLs, ...newURLs],
       })
+      setNewFiles([])
+      setPreviews([])
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '圖片上傳失敗')
+      setUploadError(err instanceof Error ? err.message : '儲存失敗')
     } finally {
-      setUploading(false)
+      setSaving(false)
     }
   }
 
@@ -463,8 +478,10 @@ function WishForm({
       </div>
       {uploadError && <p className="form-error">{uploadError}</p>}
       <div style={{ display: 'flex', gap: '8px' }}>
-        <button className="primary" type="submit" disabled={uploading} style={{ flex: 1 }}>{uploading ? '上傳中...' : submitLabel}</button>
-        {onCancel && <button type="button" className="ghost" onClick={onCancel}>取消</button>}
+        <button className="primary" type="submit" disabled={busy} style={{ flex: 1 }}>
+          {uploading ? '上傳中...' : saving ? '儲存中...' : submitLabel}
+        </button>
+        {onCancel && <button type="button" className="ghost" onClick={onCancel} disabled={busy}>取消</button>}
       </div>
     </form>
   )
