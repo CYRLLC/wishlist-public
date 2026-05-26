@@ -202,6 +202,25 @@ function Shell({ children }: { children: React.ReactNode }) {
   return <div className="page"><div className="orb orb-a" /><div className="orb orb-b" />{children}</div>
 }
 
+function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handler)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+  return (
+    <div className="lightbox-overlay" onClick={onClose} role="dialog" aria-modal="true">
+      <button className="lightbox-close" onClick={onClose} aria-label="關閉">×</button>
+      <img src={url} alt="" onClick={(e) => e.stopPropagation()} />
+    </div>
+  )
+}
+
 function Tab({ id, active, setActive, icon, label }: { id: string; active: string; setActive: (id: string) => void; icon: React.ReactNode; label: string }) {
   return <button className={active === id ? 'nav active' : 'nav'} onClick={() => setActive(id)}>{icon}{label}</button>
 }
@@ -370,6 +389,7 @@ function WishForm({
   const [previews, setPreviews] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [previewURL, setPreviewURL] = useState<string | null>(null)
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const slots = 3 - existingURLs.length - newFiles.length
@@ -457,18 +477,19 @@ function WishForm({
           <div className="image-previews">
             {existingURLs.map((url) => (
               <div key={url} className="preview-item">
-                <img src={url} alt="" />
+                <img src={url} alt="" onClick={() => setPreviewURL(url)} />
                 <button type="button" className="preview-remove" onClick={() => removeExisting(url)}>×</button>
               </div>
             ))}
             {previews.map((src, i) => (
               <div key={i} className="preview-item">
-                <img src={src} alt="" />
+                <img src={src} alt="" onClick={() => setPreviewURL(src)} />
                 <button type="button" className="preview-remove" onClick={() => removeNew(i)}>×</button>
               </div>
             ))}
           </div>
         )}
+        {previewURL && <Lightbox url={previewURL} onClose={() => setPreviewURL(null)} />}
         {canAddMore && (
           <label className="file-label">
             <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFiles} />
@@ -495,6 +516,7 @@ function WishCard({ wish, user, totalFund, reviewer, run }: { wish: Wish; user: 
   const [reason, setReason] = useState('')
   const [points, setPoints] = useState(wish.deferredPoints || 20)
   const [editing, setEditing] = useState(false)
+  const [previewURL, setPreviewURL] = useState<string | null>(null)
   const progress = wish.estimatedPrice ? Math.min(totalFund / wish.estimatedPrice, 1) : 0
   const isAuthor = wish.authorId === user.id
   const canEdit = isAuthor && !['redeemed', 'completed'].includes(wish.status)
@@ -538,10 +560,11 @@ function WishCard({ wish, user, totalFund, reviewer, run }: { wish: Wish; user: 
       {wish.imageURLs && wish.imageURLs.length > 0 && (
         <div className="wish-images">
           {wish.imageURLs.map((url) => (
-            <img key={url} src={url} alt="" onClick={() => window.open(url, '_blank')} />
+            <img key={url} src={url} alt="" onClick={() => setPreviewURL(url)} />
           ))}
         </div>
       )}
+      {previewURL && <Lightbox url={previewURL} onClose={() => setPreviewURL(null)} />}
       {wish.estimatedPrice ? <div className="fund-mini"><div><span>目標 {money(wish.estimatedPrice)}</span><span>{totalFund >= wish.estimatedPrice ? '已可購買' : `還差 ${money(wish.estimatedPrice - totalFund)}`}</span></div><progress max="1" value={progress} /></div> : null}
       {wish.purchaseURL && <a href={wish.purchaseURL} target="_blank" rel="noreferrer">查看連結</a>}
       {wish.selfPurchase && <p className="intent-text">想自己買：對方可設定多少點數可換購買權。</p>}

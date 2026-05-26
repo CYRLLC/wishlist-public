@@ -376,6 +376,47 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
 .wish-images { display: flex; gap: 8px; flex-wrap: wrap; }
 .wish-images img { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; cursor: pointer; }
 
+/* ─── Image lightbox ─── */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.lightbox-overlay img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  cursor: default;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 0;
+  font-size: 22px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  min-height: auto;
+  line-height: 1;
+}
+.lightbox-close:hover { background: rgba(255, 255, 255, 0.28); }
+.wish-images img, .preview-item img { transition: transform 120ms ease; }
+.wish-images img:hover, .preview-item img:hover { transform: scale(1.04); }
+
 /* ─── Fund / Expense Split ─── */
 .payer-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .payer-btn { min-height: 40px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 800; transition: all 120ms ease; }
