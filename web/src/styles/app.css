@@ -469,6 +469,25 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
 [data-theme="dark"] .cat-icon-wrap { background: rgba(180, 150, 255, 0.16); color: #d4b0ff; }
 [data-theme="dark"] .split-hint { color: #f0a0b8; }
 
+/* ─── Currency chips & balance head ─── */
+.amount-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+.currency-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.cur-chip {
+  min-height: 34px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--muted); font-size: 0.84rem; font-weight: 700;
+  transition: all 120ms ease;
+}
+.cur-chip.active { background: #2b1d18; color: #fff6ef; border-color: transparent; }
+.currency-row.small .cur-chip { min-height: 28px; padding: 0 8px; font-size: 0.78rem; }
+.balance-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+[data-theme="dark"] .cur-chip { background: rgba(255, 255, 255, 0.06); }
+[data-theme="dark"] .cur-chip.active { background: rgba(180, 150, 255, 0.28); color: var(--ink); }
+@media (max-width: 860px) {
+  .amount-row { grid-template-columns: 1fr; }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .auth-card, .pair-card, .workspace { animation: rise 520ms ease both; }
   .wish-card, .task-row, .metric { transition: transform 180ms ease, box-shadow 180ms ease; }

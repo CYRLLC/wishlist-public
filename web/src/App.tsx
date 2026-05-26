@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LogOut, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
-import type { AppUser, ChoreTask, CoupleData, ExpenseCategory, FundEntry, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
-import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, deleteFundEntry, deleteWish, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
+import type { AppUser, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
+import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteFundEntry, deleteWish, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -46,7 +46,15 @@ const expenseCategories: { id: ExpenseCategory; label: string; icon: typeof Uten
 const categoryById = (id?: ExpenseCategory) => expenseCategories.find((c) => c.id === id) ?? expenseCategories[expenseCategories.length - 1]
 
 const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
-const money = (value: number) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(value)
+const money = (value: number, currency: Currency = 'TWD') =>
+  new Intl.NumberFormat('zh-TW', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
+
+const currencyOptions: { id: Currency; label: string }[] = [
+  { id: 'TWD', label: '台幣' },
+  { id: 'HKD', label: '港元' },
+  { id: 'USD', label: '美金' },
+  { id: 'JPY', label: '日幣' },
+]
 
 type AppNotification = {
   id: string
@@ -183,11 +191,11 @@ function App() {
           <div className="brand"><HeartHandshake size={28} /><span>WishLink</span></div>
           <nav>
             <Tab id="wishes" active={activeTab} setActive={setActiveTab} icon={<Gift size={18} />} label="願望" />
-            <Tab id="tasks" active={activeTab} setActive={setActiveTab} icon={<Hammer size={18} />} label="打工區" />
+            <Tab id="tasks" active={activeTab} setActive={setActiveTab} icon={<Hammer size={18} />} label="打工" />
             <Tab id="messages" active={activeTab} setActive={setActiveTab} icon={<MessageCircle size={18} />} label="留言" />
             <Tab id="points" active={activeTab} setActive={setActiveTab} icon={<Star size={18} />} label="點數" />
-            <Tab id="fund" active={activeTab} setActive={setActiveTab} icon={<Banknote size={18} />} label="資金" />
-            <Tab id="profile" active={activeTab} setActive={setActiveTab} icon={<UserRound size={18} />} label="我" />
+            <Tab id="fund" active={activeTab} setActive={setActiveTab} icon={<Banknote size={18} />} label="記帳" />
+            <Tab id="profile" active={activeTab} setActive={setActiveTab} icon={<UserRound size={18} />} label="我們" />
             <button className="nav" onClick={toggleDark}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}{darkMode ? '白天' : '夜晚'}</button>
           </nav>
           <button className="ghost" onClick={() => run(async () => { await logout(); setUser(null) })}><LogOut size={16} />登出</button>
@@ -602,11 +610,11 @@ function TaskPanel({ user, tasks, run }: { user: AppUser; tasks: ChoreTask[]; ru
   return (
     <section className="stack">
       <Header
-        title="打工區"
+        title="打工"
         subtitle="建立任務、自行申報完成的工作，對方確認後自動入帳。"
         action={<button className="primary compact" onClick={() => setReportOpen(!reportOpen)}><Plus size={16} />{reportOpen ? '收起申報' : '申報完成'}</button>}
       />
-      <GuideCard title="打工區怎麼用" steps={[
+      <GuideCard title="打工怎麼用" steps={[
         '由其中一方建立任務，選擇週期與點數，對方領取完成後申請點數。',
         '也可點「申報完成」填寫今天做了什麼，建議點數由對方審核後決定是否給點。',
         '點數一旦審核通過，自動計入帳戶並出現在點數紀錄。',
@@ -715,55 +723,76 @@ function FundPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: 
   const partnerName = partner?.nickname || '對方'
   const payerName = (userId: string) => userId === user.id ? myName : partnerName
 
-  // Per-entry share computed from payerShare (default equal split)
+  const [displayCurrency, setDisplayCurrency] = useState<Currency>(() => {
+    const saved = localStorage.getItem('wishlink-display-currency')
+    return (saved && ['TWD','HKD','USD','JPY'].includes(saved)) ? saved as Currency : 'TWD'
+  })
+  const [rates, setRates] = useState<Record<Currency, number> | null>(null)
+  useEffect(() => { getExchangeRates().then(setRates) }, [])
+  useEffect(() => { localStorage.setItem('wishlink-display-currency', displayCurrency) }, [displayCurrency])
+
+  const toDisplay = (amount: number, from: Currency = 'TWD') => rates ? convertAmount(amount, from, displayCurrency, rates) : amount
+  const entryCurrency = (e: FundEntry): Currency => e.currency || 'TWD'
+
+  // Per-entry share in display currency
   const myShareIn = (entry: FundEntry): number => {
     const payerShare = entry.payerShare ?? entry.amount / 2
-    return entry.userId === user.id ? payerShare : entry.amount - payerShare
+    const myOriginal = entry.userId === user.id ? payerShare : entry.amount - payerShare
+    return toDisplay(myOriginal, entryCurrency(entry))
   }
-  const myPaidTotal = useMemo(() => data.fundEntries.filter((e) => e.userId === user.id).reduce((s, e) => s + e.amount, 0), [data.fundEntries, user.id])
-  const partnerPaidTotal = useMemo(() => data.fundEntries.filter((e) => partner && e.userId === partner.id).reduce((s, e) => s + e.amount, 0), [data.fundEntries, partner])
-  const myShareTotal = useMemo(() => data.fundEntries.reduce((s, e) => s + myShareIn(e), 0), [data.fundEntries, user.id])
+  const myPaidTotal = useMemo(() => data.fundEntries.filter((e) => e.userId === user.id).reduce((s, e) => s + toDisplay(e.amount, entryCurrency(e)), 0), [data.fundEntries, user.id, displayCurrency, rates])
+  const partnerPaidTotal = useMemo(() => data.fundEntries.filter((e) => partner && e.userId === partner.id).reduce((s, e) => s + toDisplay(e.amount, entryCurrency(e)), 0), [data.fundEntries, partner, displayCurrency, rates])
+  const myShareTotal = useMemo(() => data.fundEntries.reduce((s, e) => s + myShareIn(e), 0), [data.fundEntries, user.id, displayCurrency, rates])
   const myNet = myPaidTotal - myShareTotal   // > 0: partner owes me; < 0: I owe partner
 
   return (
     <section className="stack">
-      <Header title="費用分帳" subtitle="記錄誰付了什麼，可自訂分擔比例、上傳收據，自動算誰欠誰。" />
-      <GuideCard title="分帳怎麼用" steps={[
-        '選類別、付款人、金額，預設「均分」表示一人一半。',
+      <Header title="記帳" subtitle="記錄誰付了什麼，可自訂分擔比例、上傳收據，自動轉換成所選幣別。" />
+      <GuideCard title="記帳怎麼用" steps={[
+        '選類別、付款人、金額（含幣別），預設「均分」表示一人一半。',
         '需要不均分時切到「自訂」，輸入自己應該負擔多少，剩下的就是對方的。',
-        '可選擇上傳收據，下方自動算誰欠誰，結清後可刪掉舊記錄重來。',
+        '右上選擇顯示幣別，所有支出與結算會自動換算（匯率每天更新）。',
       ]} />
 
       <div className="compose balance-rows">
-        <strong>結算總覽</strong>
-        <div className="balance-row"><span>{myName} 已付</span><b>{money(myPaidTotal)}</b></div>
-        {partner && <div className="balance-row"><span>{partnerName} 已付</span><b>{money(partnerPaidTotal)}</b></div>}
-        <div className="balance-row"><span>{myName} 應負擔</span><b>{money(myShareTotal)}</b></div>
+        <div className="balance-head">
+          <strong>結算總覽</strong>
+          <div className="currency-row small" role="radiogroup" aria-label="顯示幣別">
+            {currencyOptions.map(({ id, label }) => (
+              <button key={id} type="button" className={displayCurrency === id ? 'cur-chip active' : 'cur-chip'} onClick={() => setDisplayCurrency(id)}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <div className="balance-row"><span>{myName} 已付</span><b>{money(myPaidTotal, displayCurrency)}</b></div>
+        {partner && <div className="balance-row"><span>{partnerName} 已付</span><b>{money(partnerPaidTotal, displayCurrency)}</b></div>}
+        <div className="balance-row"><span>{myName} 應負擔</span><b>{money(myShareTotal, displayCurrency)}</b></div>
         <hr className="balance-divider" />
         {Math.abs(myNet) < 0.5
           ? <div className="balance-result settle">已結清 ✓</div>
           : myNet > 0
-            ? <div className="balance-result owes">{partnerName} 欠 {myName} {money(myNet)}</div>
-            : <div className="balance-result owes">{myName} 欠 {partnerName} {money(-myNet)}</div>}
+            ? <div className="balance-result owes">{partnerName} 欠 {myName} {money(myNet, displayCurrency)}</div>
+            : <div className="balance-result owes">{myName} 欠 {partnerName} {money(-myNet, displayCurrency)}</div>}
+        {!rates && <div className="muted" style={{ fontSize: '0.78rem' }}>正在取得最新匯率…</div>}
       </div>
 
-      <ExpenseForm user={user} partner={partner} run={run} />
+      <ExpenseForm user={user} partner={partner} defaultCurrency={displayCurrency} run={run} />
 
       <div className="column">
         <h2>費用記錄</h2>
         {data.fundEntries.length === 0 && <Empty text="還沒有費用記錄" />}
         {data.fundEntries.map((entry) => (
-          <ExpenseRow key={entry.id} entry={entry} payerName={payerName} run={run} />
+          <ExpenseRow key={entry.id} entry={entry} payerName={payerName} displayCurrency={displayCurrency} rates={rates} run={run} />
         ))}
       </div>
     </section>
   )
 }
 
-function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser | null; run: (task: () => Promise<void>) => void }) {
+function ExpenseForm({ user, partner, defaultCurrency, run }: { user: AppUser; partner?: AppUser | null; defaultCurrency: Currency; run: (task: () => Promise<void>) => void }) {
   const [category, setCategory] = useState<ExpenseCategory>('food')
   const [payerId, setPayerId] = useState(user.id)
   const [amount, setAmount] = useState('')
+  const [currency, setCurrency] = useState<Currency>(defaultCurrency)
   const [note, setNote] = useState('')
   const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal')
   const [payerShareStr, setPayerShareStr] = useState('')
@@ -795,6 +824,7 @@ function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser 
   const busy = uploading || saving
   const reset = () => {
     setAmount(''); setNote(''); setFiles([]); setPreviews([]); setPayerShareStr(''); setSplitMode('equal'); setErrMsg('')
+    setCurrency(defaultCurrency)
   }
 
   const submit = async (event: React.FormEvent) => {
@@ -818,6 +848,7 @@ function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser 
             coupleId: user.coupleId!,
             userId: payerId,
             amount: amountNum,
+            currency,
             payerShare: splitMode === 'custom' ? payerShareNum : null,
             category,
             imageURLs: urls,
@@ -848,10 +879,15 @@ function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser 
         <button type="button" className={payerId === user.id ? 'payer-btn active' : 'payer-btn'} onClick={() => setPayerId(user.id)}>我付款</button>
         <button type="button" className={partner && payerId === partner.id ? 'payer-btn active' : 'payer-btn'} onClick={() => { if (partner) setPayerId(partner.id) }} disabled={!partner}>{partnerName}付款</button>
       </div>
-      <div className="form-grid">
+      <div className="amount-row">
         <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金額" inputMode="numeric" required />
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註（例如：晚餐、超市）" required />
+        <div className="currency-row" role="radiogroup" aria-label="幣別">
+          {currencyOptions.map(({ id, label }) => (
+            <button key={id} type="button" className={currency === id ? 'cur-chip active' : 'cur-chip'} onClick={() => setCurrency(id)}>{label}</button>
+          ))}
+        </div>
       </div>
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註（例如：晚餐、超市）" required />
       <div>
         <div style={{ fontSize: '0.88rem', color: 'var(--muted)', marginBottom: '6px' }}>分帳方式</div>
         <div className="payer-toggle">
@@ -864,7 +900,7 @@ function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser 
               <span>{payerName}負擔</span>
               <input value={payerShareStr} onChange={(e) => setPayerShareStr(e.target.value)} placeholder="0" inputMode="numeric" />
             </label>
-            <div className="split-other">{otherName}負擔 <b>{money(otherShareNum)}</b></div>
+            <div className="split-other">{otherName}負擔 <b>{money(otherShareNum, currency)}</b></div>
           </div>
         )}
       </div>
@@ -892,13 +928,16 @@ function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser 
   )
 }
 
-function ExpenseRow({ entry, payerName, run }: { entry: FundEntry; payerName: (userId: string) => string; run: (task: () => Promise<void>) => void }) {
+function ExpenseRow({ entry, payerName, displayCurrency, rates, run }: { entry: FundEntry; payerName: (userId: string) => string; displayCurrency: Currency; rates: Record<Currency, number> | null; run: (task: () => Promise<void>) => void }) {
   const [previewURL, setPreviewURL] = useState<string | null>(null)
   const cat = categoryById(entry.category)
   const CatIcon = cat.icon
+  const entryCur: Currency = entry.currency || 'TWD'
   const payerShare = entry.payerShare ?? entry.amount / 2
   const otherShare = entry.amount - payerShare
   const isCustom = entry.payerShare !== undefined && entry.payerShare !== null
+  const converted = rates ? convertAmount(entry.amount, entryCur, displayCurrency, rates) : entry.amount
+  const showConversion = entryCur !== displayCurrency && rates
   return (
     <article className="task-row expense-row">
       <div className="expense-main">
@@ -906,8 +945,12 @@ function ExpenseRow({ entry, payerName, run }: { entry: FundEntry; payerName: (u
           <span className="cat-icon-wrap"><CatIcon size={18} /></span>
           <div className="expense-meta">
             <strong>{entry.note}</strong>
-            <span>{cat.label} · {payerName(entry.userId)} 付 {money(entry.amount)} · {new Date(entry.createdAt).toLocaleDateString('zh-TW')}</span>
-            {isCustom && <span className="split-hint">分擔：{payerName(entry.userId)} {money(payerShare)} / 對方 {money(otherShare)}</span>}
+            <span>
+              {cat.label} · {payerName(entry.userId)} 付 {money(entry.amount, entryCur)}
+              {showConversion && <> <span className="muted">≈ {money(converted, displayCurrency)}</span></>}
+              {' · '}{new Date(entry.createdAt).toLocaleDateString('zh-TW')}
+            </span>
+            {isCustom && <span className="split-hint">分擔：{payerName(entry.userId)} {money(payerShare, entryCur)} / 對方 {money(otherShare, entryCur)}</span>}
           </div>
         </div>
         {entry.imageURLs && entry.imageURLs.length > 0 && (
@@ -925,13 +968,19 @@ function ExpenseRow({ entry, payerName, run }: { entry: FundEntry; payerName: (u
 }
 
 function ProfilePanel({ user, partner }: { user: AppUser; partner?: AppUser | null }) {
-  return <section className="stack"><Header title="雙方資料" subtitle="確認目前登入者與配對對象，避免不知道配到誰。" />
-    <GuideCard title="雙方資料怎麼看" steps={['左邊是目前登入的自己，右邊是已配對的對方。', '如果對方資料沒有出現，通常是剛配對尚未同步，先重新整理。', '要重新確認配對對象時，先看這裡的暱稱、Email 和 ID。']} />
-    <div className="profile-grid">
-      <div className="profile-card"><UserRound size={42} /><span>我</span><h2>{user.nickname}</h2><p>{user.email}</p><div className="invite-box"><span>我的邀請碼</span><strong>{user.id}</strong></div></div>
-      <div className="profile-card"><HeartHandshake size={42} /><span>配對對象</span>{partner ? <><h2>{partner.nickname}</h2><p>{partner.email}</p><div className="invite-box"><span>對方 ID</span><strong>{partner.id}</strong></div></> : <><h2>尚未讀取到資料</h2><p>如果剛完成配對，請稍等同步或重新整理。</p></>}</div>
-    </div>
-  </section>
+  const coupleName = partner ? `${user.nickname} & ${partner.nickname}` : user.nickname
+  return (
+    <section className="stack">
+      <Header title="我們" subtitle="這個配對的基本資料與邀請碼。" />
+      <div className="profile-card">
+        <HeartHandshake size={42} />
+        <span>情侶名稱</span>
+        <h2>{coupleName}</h2>
+        {partner && <p>{user.email} · {partner.email}</p>}
+        <div className="invite-box"><span>我的邀請碼（給對方加入用）</span><strong>{user.id}</strong></div>
+      </div>
+    </section>
+  )
 }
 
 function Empty({ text }: { text: string }) {

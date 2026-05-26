@@ -20,7 +20,7 @@ import {
 } from 'firebase/firestore'
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, db, isFirebaseConfigured, storage } from './firebase'
-import type { AppUser, ChoreTask, CoupleData, CoupleMessage, FundEntry, PointTransaction, Wish, WishStatus } from '../types'
+import type { AppUser, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, PointTransaction, Wish, WishStatus } from '../types'
 
 export { isFirebaseConfigured } from './firebase'
 
@@ -341,6 +341,50 @@ async function uploadImage(file: File, folder: 'wish-images' | 'expense-images')
 
 export const uploadWishImage = (file: File) => uploadImage(file, 'wish-images')
 export const uploadExpenseImage = (file: File) => uploadImage(file, 'expense-images')
+
+// Exchange rates relative to USD (1 USD = X).
+// Fallback values are approximate (2026-05). Real-time rates fetched on demand and cached for 24h.
+const FALLBACK_RATES: Record<Currency, number> = {
+  USD: 1,
+  TWD: 31,
+  HKD: 7.8,
+  JPY: 150,
+}
+
+const RATES_CACHE_KEY = 'wishlink-fx-rates'
+const RATES_CACHE_TTL = 24 * 60 * 60 * 1000
+
+export async function getExchangeRates(): Promise<Record<Currency, number>> {
+  try {
+    const cached = JSON.parse(localStorage.getItem(RATES_CACHE_KEY) || 'null')
+    if (cached && cached.ts && Date.now() - cached.ts < RATES_CACHE_TTL && cached.rates) {
+      return cached.rates
+    }
+  } catch {}
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD')
+    if (!res.ok) throw new Error('rates fetch failed')
+    const data = await res.json()
+    const r = data?.rates || {}
+    const rates: Record<Currency, number> = {
+      USD: 1,
+      TWD: Number(r.TWD) || FALLBACK_RATES.TWD,
+      HKD: Number(r.HKD) || FALLBACK_RATES.HKD,
+      JPY: Number(r.JPY) || FALLBACK_RATES.JPY,
+    }
+    localStorage.setItem(RATES_CACHE_KEY, JSON.stringify({ ts: Date.now(), rates }))
+    return rates
+  } catch {
+    return FALLBACK_RATES
+  }
+}
+
+// Convert `amount` in currency `from` into currency `to`, using rates-relative-to-USD.
+export function convertAmount(amount: number, from: Currency, to: Currency, rates: Record<Currency, number>): number {
+  if (from === to) return amount
+  const usd = amount / (rates[from] || FALLBACK_RATES[from])
+  return usd * (rates[to] || FALLBACK_RATES[to])
+}
 
 export async function updateWishStatus(wishId: string, status: WishStatus, extra: Partial<Wish> = {}) {
   if (!isFirebaseConfigured || !db) {

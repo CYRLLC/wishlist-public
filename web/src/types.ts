@@ -62,11 +62,14 @@ export type ExpenseCategory =
   | 'food' | 'shopping' | 'transport' | 'entertainment'
   | 'home' | 'travel' | 'gift' | 'other'
 
+export type Currency = 'TWD' | 'HKD' | 'USD' | 'JPY'
+
 export type FundEntry = {
   id: string
   coupleId: string
   userId: string              // who paid
-  amount: number              // total paid
+  amount: number              // total paid in `currency`
+  currency?: Currency         // currency of `amount`; default TWD if missing
   payerShare?: number | null  // payer's own share of `amount`; partner share = amount - payerShare; undefined → split equally (amount/2)
   category?: ExpenseCategory
   imageURLs?: string[]        // receipt photos
