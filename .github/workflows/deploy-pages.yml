@@ -57,3 +57,25 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-rules:
+    runs-on: ubuntu-latest
+    needs: build
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+      - name: Write service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$HOME/firebase-key.json"
+      - name: Deploy Firestore & Storage rules
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /home/runner/firebase-key.json
+        run: firebase deploy --only firestore:rules,storage --project wishlist-87fd1 --non-interactive

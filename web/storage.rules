@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Wish images: any signed-in user may upload to wish-images/.
+    // Public read (so URLs returned by getDownloadURL work without auth tokens).
+    // Size cap 5 MB, must be an image type.
+    match /wish-images/{file=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Default deny.
+    match /{file=**} {
+      allow read, write: if false;
+    }
+  }
+}

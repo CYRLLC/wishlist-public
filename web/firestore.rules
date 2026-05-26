@@ -30,12 +30,14 @@ service cloud.firestore {
       allow read: if sameCouple(resource.data.coupleId);
       allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.authorId == request.auth.uid;
       allow update: if sameCouple(resource.data.coupleId);
+      allow delete: if sameCouple(resource.data.coupleId) && resource.data.authorId == request.auth.uid;
     }
 
     match /tasks/{taskId} {
       allow read: if sameCouple(resource.data.coupleId);
       allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.creatorId == request.auth.uid;
       allow update: if sameCouple(resource.data.coupleId);
+      allow delete: if sameCouple(resource.data.coupleId) && resource.data.creatorId == request.auth.uid;
     }
 
     match /transactions/{transactionId} {
@@ -45,7 +47,8 @@ service cloud.firestore {
 
     match /fund_entries/{entryId} {
       allow read: if sameCouple(resource.data.coupleId);
-      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.userId == request.auth.uid;
+      allow create: if sameCouple(request.resource.data.coupleId);
+      allow delete: if sameCouple(resource.data.coupleId);
     }
 
     match /messages/{messageId} {

@@ -306,9 +306,10 @@ export async function uploadWishImage(file: File): Promise<string> {
       reader.readAsDataURL(file)
     })
   }
-  const path = `wish-images/${id()}-${file.name}`
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'jpg'
+  const path = `wish-images/${id()}.${ext}`
   const ref = storageRef(storage, path)
-  const snapshot = await uploadBytes(ref, file)
+  const snapshot = await uploadBytes(ref, file, { contentType: file.type || 'image/jpeg' })
   return getDownloadURL(snapshot.ref)
 }
 
