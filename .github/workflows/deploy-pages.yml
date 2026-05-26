@@ -74,8 +74,20 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
       - name: Write service account key
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$HOME/firebase-key.json"
-      - name: Deploy Firestore & Storage rules
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: /home/runner/firebase-key.json
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA_JSON" ]; then
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT is empty or missing."
+            exit 1
+          fi
+          printf '%s' "$SA_JSON" > "$HOME/firebase-key.json"
+          echo "Key file size: $(wc -c < "$HOME/firebase-key.json") bytes"
+          # Quick sanity: must contain "private_key" field
+          if ! grep -q '"private_key"' "$HOME/firebase-key.json"; then
+            echo "::error::Secret does not look like a service account JSON (no 'private_key' field)."
+            exit 1
+          fi
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/firebase-key.json" >> "$GITHUB_ENV"
+      - name: Deploy Firestore & Storage rules
         run: firebase deploy --only firestore:rules,storage --project wishlist-87fd1 --non-interactive
