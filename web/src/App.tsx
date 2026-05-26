@@ -215,8 +215,8 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   }, [onClose])
   return (
     <div className="lightbox-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <button className="lightbox-close" onClick={onClose} aria-label="關閉">×</button>
-      <img src={url} alt="" onClick={(e) => e.stopPropagation()} />
+      <button className="lightbox-close" onClick={(e) => { e.stopPropagation(); onClose() }} aria-label="關閉">×</button>
+      <img src={url} alt="" />
     </div>
   )
 }

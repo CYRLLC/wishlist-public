@@ -392,7 +392,7 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   max-height: 100%;
   object-fit: contain;
   border-radius: 10px;
-  cursor: default;
+  cursor: zoom-out;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 .lightbox-close {
