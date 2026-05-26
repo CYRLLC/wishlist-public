@@ -430,6 +430,45 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
 [data-theme="dark"] .payer-btn.active { background: rgba(180, 150, 255, 0.2); color: var(--ink); }
 [data-theme="dark"] .balance-result.settle { color: #6dd4a0; }
 
+/* ─── Expense category chips ─── */
+.category-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; min-height: 34px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--muted); font-size: 0.86rem; font-weight: 700;
+  transition: all 120ms ease;
+}
+.cat-chip.active { background: var(--rose); color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(220, 91, 116, 0.28); }
+[data-theme="dark"] .cat-chip { background: rgba(255, 255, 255, 0.06); }
+[data-theme="dark"] .cat-chip.active { background: rgba(180, 150, 255, 0.28); color: var(--ink); }
+
+/* ─── Custom split inputs ─── */
+.split-detail { margin-top: 8px; display: grid; gap: 6px; }
+.split-input { display: grid; grid-template-columns: 1fr 140px; gap: 8px; align-items: center; }
+.split-input span { color: var(--muted); font-size: 0.92rem; }
+.split-input input { padding: 10px 12px; }
+.split-other { color: var(--muted); font-size: 0.88rem; padding-left: 4px; }
+.split-other b { color: var(--ink); }
+
+/* ─── Expense list row ─── */
+.expense-row { align-items: stretch; }
+.expense-main { flex: 1; display: grid; gap: 8px; min-width: 0; }
+.expense-head { display: flex; gap: 12px; align-items: flex-start; }
+.cat-icon-wrap {
+  flex: 0 0 36px; height: 36px; border-radius: 12px;
+  background: rgba(220, 91, 116, 0.12); color: var(--rose-dark);
+  display: grid; place-items: center;
+}
+.expense-meta { display: grid; gap: 2px; min-width: 0; }
+.expense-meta strong { word-break: break-word; }
+.split-hint { color: var(--rose-dark); font-size: 0.82rem; font-weight: 700; }
+.expense-thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+.expense-thumbs img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
+[data-theme="dark"] .cat-icon-wrap { background: rgba(180, 150, 255, 0.16); color: #d4b0ff; }
+[data-theme="dark"] .split-hint { color: #f0a0b8; }
+
 @media (prefers-reduced-motion: no-preference) {
   .auth-card, .pair-card, .workspace { animation: rise 520ms ease both; }
   .wish-card, .task-row, .metric { transition: transform 180ms ease, box-shadow 180ms ease; }

@@ -323,7 +323,7 @@ async function compressImage(file: File, maxDim = 1920, quality = 0.85): Promise
   }
 }
 
-export async function uploadWishImage(file: File): Promise<string> {
+async function uploadImage(file: File, folder: 'wish-images' | 'expense-images'): Promise<string> {
   const compressed = await compressImage(file)
   if (!isFirebaseConfigured || !storage) {
     return new Promise((resolve, reject) => {
@@ -333,11 +333,14 @@ export async function uploadWishImage(file: File): Promise<string> {
       reader.readAsDataURL(compressed)
     })
   }
-  const path = `wish-images/${id()}.jpg`
+  const path = `${folder}/${id()}.jpg`
   const ref = storageRef(storage, path)
   const snapshot = await uploadBytes(ref, compressed, { contentType: compressed.type || 'image/jpeg' })
   return getDownloadURL(snapshot.ref)
 }
+
+export const uploadWishImage = (file: File) => uploadImage(file, 'wish-images')
+export const uploadExpenseImage = (file: File) => uploadImage(file, 'expense-images')
 
 export async function updateWishStatus(wishId: string, status: WishStatus, extra: Partial<Wish> = {}) {
   if (!isFirebaseConfigured || !db) {

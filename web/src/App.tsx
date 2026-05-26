@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Banknote, Bell, Check, Copy, Gift, Hammer, HeartHandshake, LogOut, MessageCircle, Moon, Pencil, Plus, Sparkles, Star, Sun, Trash2, UserRound, X } from 'lucide-react'
-import type { AppUser, ChoreTask, CoupleData, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
-import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, deleteFundEntry, deleteWish, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWish, updateWishStatus, uploadWishImage } from './services/data'
+import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LogOut, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
+import type { AppUser, ChoreTask, CoupleData, ExpenseCategory, FundEntry, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
+import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, deleteFundEntry, deleteWish, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -32,6 +32,18 @@ const taskStatusLabel: Record<TaskStatus, string> = {
   approved: '已給點',
   rejected: '已退回',
 }
+
+const expenseCategories: { id: ExpenseCategory; label: string; icon: typeof Utensils }[] = [
+  { id: 'food', label: '餐飲', icon: Utensils },
+  { id: 'shopping', label: '採購', icon: ShoppingBag },
+  { id: 'transport', label: '交通', icon: Bus },
+  { id: 'entertainment', label: '娛樂', icon: Film },
+  { id: 'home', label: '居家', icon: Home },
+  { id: 'travel', label: '旅遊', icon: Plane },
+  { id: 'gift', label: '禮物', icon: Gift },
+  { id: 'other', label: '其他', icon: MoreHorizontal },
+]
+const categoryById = (id?: ExpenseCategory) => expenseCategories.find((c) => c.id === id) ?? expenseCategories[expenseCategories.length - 1]
 
 const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
 const money = (value: number) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(value)
@@ -698,74 +710,217 @@ function PointsPanel({ user, data, run }: { user: AppUser; data: CoupleData; run
 }
 
 function FundPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
-  const [amount, setAmount] = useState('')
-  const [note, setNote] = useState('')
-  const [payerId, setPayerId] = useState(user.id)
   const partner = data.partner
-
-  const myTotal = useMemo(() => data.fundEntries.filter((e) => e.userId === user.id).reduce((sum, e) => sum + e.amount, 0), [data.fundEntries, user.id])
-  const partnerTotal = useMemo(() => data.fundEntries.filter((e) => partner && e.userId === partner.id).reduce((sum, e) => sum + e.amount, 0), [data.fundEntries, partner])
-  const net = myTotal - partnerTotal
-  const owedAmount = Math.abs(net) / 2
   const myName = user.nickname || '我'
   const partnerName = partner?.nickname || '對方'
   const payerName = (userId: string) => userId === user.id ? myName : partnerName
 
+  // Per-entry share computed from payerShare (default equal split)
+  const myShareIn = (entry: FundEntry): number => {
+    const payerShare = entry.payerShare ?? entry.amount / 2
+    return entry.userId === user.id ? payerShare : entry.amount - payerShare
+  }
+  const myPaidTotal = useMemo(() => data.fundEntries.filter((e) => e.userId === user.id).reduce((s, e) => s + e.amount, 0), [data.fundEntries, user.id])
+  const partnerPaidTotal = useMemo(() => data.fundEntries.filter((e) => partner && e.userId === partner.id).reduce((s, e) => s + e.amount, 0), [data.fundEntries, partner])
+  const myShareTotal = useMemo(() => data.fundEntries.reduce((s, e) => s + myShareIn(e), 0), [data.fundEntries, user.id])
+  const myNet = myPaidTotal - myShareTotal   // > 0: partner owes me; < 0: I owe partner
+
   return (
     <section className="stack">
-      <Header title="費用分帳" subtitle="記錄誰付了什麼，自動計算誰欠誰多少，像 Tricount 一樣簡單。" />
+      <Header title="費用分帳" subtitle="記錄誰付了什麼，可自訂分擔比例、上傳收據，自動算誰欠誰。" />
       <GuideCard title="分帳怎麼用" steps={[
-        '每次有人付款就新增一筆，選好是誰付的、金額和備註。',
-        '下方自動計算雙方各付多少、誰欠誰多少錢。',
-        '結清後可刪除舊記錄，從零開始下一輪計算。',
+        '選類別、付款人、金額，預設「均分」表示一人一半。',
+        '需要不均分時切到「自訂」，輸入自己應該負擔多少，剩下的就是對方的。',
+        '可選擇上傳收據，下方自動算誰欠誰，結清後可刪掉舊記錄重來。',
       ]} />
 
       <div className="compose balance-rows">
         <strong>結算總覽</strong>
-        <div className="balance-row"><span>{myName} 支出</span><b>{money(myTotal)}</b></div>
-        {partner && <div className="balance-row"><span>{partnerName} 支出</span><b>{money(partnerTotal)}</b></div>}
+        <div className="balance-row"><span>{myName} 已付</span><b>{money(myPaidTotal)}</b></div>
+        {partner && <div className="balance-row"><span>{partnerName} 已付</span><b>{money(partnerPaidTotal)}</b></div>}
+        <div className="balance-row"><span>{myName} 應負擔</span><b>{money(myShareTotal)}</b></div>
         <hr className="balance-divider" />
-        {owedAmount < 0.5
+        {Math.abs(myNet) < 0.5
           ? <div className="balance-result settle">已結清 ✓</div>
-          : net > 0
-            ? <div className="balance-result owes">{partnerName} 欠 {myName} {money(owedAmount)}</div>
-            : <div className="balance-result owes">{myName} 欠 {partnerName} {money(owedAmount)}</div>}
+          : myNet > 0
+            ? <div className="balance-result owes">{partnerName} 欠 {myName} {money(myNet)}</div>
+            : <div className="balance-result owes">{myName} 欠 {partnerName} {money(-myNet)}</div>}
       </div>
 
-      <form className="compose" onSubmit={(e) => {
-        e.preventDefault()
-        run(async () => {
-          await addFundEntry({ coupleId: user.coupleId!, userId: payerId, amount: Number(amount), note })
-          setAmount('')
-          setNote('')
-        })
-      }}>
-        <strong>新增支出</strong>
-        <div className="payer-toggle">
-          <button type="button" className={payerId === user.id ? 'payer-btn active' : 'payer-btn'} onClick={() => setPayerId(user.id)}>我付款</button>
-          <button type="button" className={partner && payerId === partner.id ? 'payer-btn active' : 'payer-btn'} onClick={() => { if (partner) setPayerId(partner.id) }} disabled={!partner}>{partnerName}付款</button>
-        </div>
-        <div className="form-grid">
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金額" inputMode="numeric" required />
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註（例如：晚餐、超市）" required />
-        </div>
-        <button className="primary compact">新增</button>
-      </form>
+      <ExpenseForm user={user} partner={partner} run={run} />
 
       <div className="column">
         <h2>費用記錄</h2>
         {data.fundEntries.length === 0 && <Empty text="還沒有費用記錄" />}
         {data.fundEntries.map((entry) => (
-          <article className="task-row" key={entry.id}>
-            <div>
-              <strong>{entry.note}</strong>
-              <span>{payerName(entry.userId)} 付 · {money(entry.amount)} · {new Date(entry.createdAt).toLocaleDateString('zh-TW')}</span>
-            </div>
-            <button className="ghost" style={{ minHeight: 'auto', padding: '6px 10px', color: 'var(--rose-dark)' }} onClick={() => run(() => deleteFundEntry(entry.id))}><Trash2 size={14} /></button>
-          </article>
+          <ExpenseRow key={entry.id} entry={entry} payerName={payerName} run={run} />
         ))}
       </div>
     </section>
+  )
+}
+
+function ExpenseForm({ user, partner, run }: { user: AppUser; partner?: AppUser | null; run: (task: () => Promise<void>) => void }) {
+  const [category, setCategory] = useState<ExpenseCategory>('food')
+  const [payerId, setPayerId] = useState(user.id)
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal')
+  const [payerShareStr, setPayerShareStr] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [previews, setPreviews] = useState<string[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [errMsg, setErrMsg] = useState('')
+  const partnerName = partner?.nickname || '對方'
+  const myName = user.nickname || '我'
+  const payerName = payerId === user.id ? myName : partnerName
+  const otherName = payerId === user.id ? partnerName : myName
+  const amountNum = Number(amount) || 0
+  const payerShareNum = splitMode === 'equal' ? amountNum / 2 : Math.min(amountNum, Math.max(0, Number(payerShareStr) || 0))
+  const otherShareNum = Math.max(0, amountNum - payerShareNum)
+
+  const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const slots = 3 - files.length
+    const next = Array.from(e.target.files || []).slice(0, slots)
+    setFiles((prev) => [...prev, ...next].slice(0, 3))
+    setPreviews((prev) => [...prev, ...next.map((f) => URL.createObjectURL(f))].slice(0, 3))
+    e.target.value = ''
+  }
+  const removeFile = (i: number) => {
+    setFiles((prev) => prev.filter((_, idx) => idx !== i))
+    setPreviews((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
+  const busy = uploading || saving
+  const reset = () => {
+    setAmount(''); setNote(''); setFiles([]); setPreviews([]); setPayerShareStr(''); setSplitMode('equal'); setErrMsg('')
+  }
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (busy) return
+    setErrMsg('')
+    if (amountNum <= 0) { setErrMsg('金額需大於 0'); return }
+    setUploading(true)
+    let urls: string[] = []
+    try {
+      urls = await Promise.all(files.map(uploadExpenseImage))
+    } catch (err) {
+      setErrMsg(err instanceof Error ? err.message : '收據上傳失敗')
+      setUploading(false); return
+    }
+    setUploading(false); setSaving(true)
+    try {
+      await new Promise<void>((resolve, reject) => run(async () => {
+        try {
+          await addFundEntry({
+            coupleId: user.coupleId!,
+            userId: payerId,
+            amount: amountNum,
+            payerShare: splitMode === 'custom' ? payerShareNum : null,
+            category,
+            imageURLs: urls,
+            note,
+          })
+          resolve()
+        } catch (err) { reject(err) }
+      }))
+      reset()
+    } catch (err) {
+      setErrMsg(err instanceof Error ? err.message : '儲存失敗')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form className="compose" onSubmit={submit}>
+      <strong>新增支出</strong>
+      <div className="category-row">
+        {expenseCategories.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" className={category === id ? 'cat-chip active' : 'cat-chip'} onClick={() => setCategory(id)} title={label}>
+            <Icon size={16} /><span>{label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="payer-toggle">
+        <button type="button" className={payerId === user.id ? 'payer-btn active' : 'payer-btn'} onClick={() => setPayerId(user.id)}>我付款</button>
+        <button type="button" className={partner && payerId === partner.id ? 'payer-btn active' : 'payer-btn'} onClick={() => { if (partner) setPayerId(partner.id) }} disabled={!partner}>{partnerName}付款</button>
+      </div>
+      <div className="form-grid">
+        <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金額" inputMode="numeric" required />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="備註（例如：晚餐、超市）" required />
+      </div>
+      <div>
+        <div style={{ fontSize: '0.88rem', color: 'var(--muted)', marginBottom: '6px' }}>分帳方式</div>
+        <div className="payer-toggle">
+          <button type="button" className={splitMode === 'equal' ? 'payer-btn active' : 'payer-btn'} onClick={() => setSplitMode('equal')}>均分</button>
+          <button type="button" className={splitMode === 'custom' ? 'payer-btn active' : 'payer-btn'} onClick={() => setSplitMode('custom')}>自訂</button>
+        </div>
+        {splitMode === 'custom' && (
+          <div className="split-detail">
+            <label className="split-input">
+              <span>{payerName}負擔</span>
+              <input value={payerShareStr} onChange={(e) => setPayerShareStr(e.target.value)} placeholder="0" inputMode="numeric" />
+            </label>
+            <div className="split-other">{otherName}負擔 <b>{money(otherShareNum)}</b></div>
+          </div>
+        )}
+      </div>
+      <div>
+        {previews.length > 0 && (
+          <div className="image-previews">
+            {previews.map((src, i) => (
+              <div key={i} className="preview-item">
+                <img src={src} alt="" />
+                <button type="button" className="preview-remove" onClick={() => removeFile(i)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {files.length < 3 && (
+          <label className="file-label">
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFiles} />
+            <Receipt size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />上傳收據（選填，最多 3 張）
+          </label>
+        )}
+      </div>
+      {errMsg && <p className="form-error">{errMsg}</p>}
+      <button className="primary compact" type="submit" disabled={busy}>{uploading ? '上傳中...' : saving ? '儲存中...' : '新增'}</button>
+    </form>
+  )
+}
+
+function ExpenseRow({ entry, payerName, run }: { entry: FundEntry; payerName: (userId: string) => string; run: (task: () => Promise<void>) => void }) {
+  const [previewURL, setPreviewURL] = useState<string | null>(null)
+  const cat = categoryById(entry.category)
+  const CatIcon = cat.icon
+  const payerShare = entry.payerShare ?? entry.amount / 2
+  const otherShare = entry.amount - payerShare
+  const isCustom = entry.payerShare !== undefined && entry.payerShare !== null
+  return (
+    <article className="task-row expense-row">
+      <div className="expense-main">
+        <div className="expense-head">
+          <span className="cat-icon-wrap"><CatIcon size={18} /></span>
+          <div className="expense-meta">
+            <strong>{entry.note}</strong>
+            <span>{cat.label} · {payerName(entry.userId)} 付 {money(entry.amount)} · {new Date(entry.createdAt).toLocaleDateString('zh-TW')}</span>
+            {isCustom && <span className="split-hint">分擔：{payerName(entry.userId)} {money(payerShare)} / 對方 {money(otherShare)}</span>}
+          </div>
+        </div>
+        {entry.imageURLs && entry.imageURLs.length > 0 && (
+          <div className="expense-thumbs">
+            {entry.imageURLs.map((url) => (
+              <img key={url} src={url} alt="" onClick={() => setPreviewURL(url)} />
+            ))}
+          </div>
+        )}
+      </div>
+      <button className="ghost" style={{ minHeight: 'auto', padding: '6px 10px', color: 'var(--rose-dark)' }} onClick={() => { if (window.confirm('刪除這筆費用？')) run(() => deleteFundEntry(entry.id)) }}><Trash2 size={14} /></button>
+      {previewURL && <Lightbox url={previewURL} onClose={() => setPreviewURL(null)} />}
+    </article>
   )
 }
 

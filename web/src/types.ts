@@ -58,11 +58,18 @@ export type PointTransaction = {
   createdAt: number
 }
 
+export type ExpenseCategory =
+  | 'food' | 'shopping' | 'transport' | 'entertainment'
+  | 'home' | 'travel' | 'gift' | 'other'
+
 export type FundEntry = {
   id: string
   coupleId: string
-  userId: string
-  amount: number
+  userId: string              // who paid
+  amount: number              // total paid
+  payerShare?: number | null  // payer's own share of `amount`; partner share = amount - payerShare; undefined → split equally (amount/2)
+  category?: ExpenseCategory
+  imageURLs?: string[]        // receipt photos
   note: string
   createdAt: number
 }
