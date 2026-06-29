@@ -754,6 +754,73 @@ export async function findBusOptions(origin: GeoPoint, destination: GeoPoint, ra
   return { groups }
 }
 
+// ─── Location search (TDX bus stops + Nominatim places) ──────────────────────
+
+export type SearchResult = {
+  type: 'stop' | 'place'
+  lat: number
+  lng: number
+  label: string
+  subtitle?: string
+}
+
+const NOMINATIM_VIEWBOX = '121.0,25.3,122.2,24.7'  // 雙北 bounding box (left,top,right,bottom)
+
+async function searchBusStops(keyword: string): Promise<SearchResult[]> {
+  const safe = keyword.replace(/'/g, "''")
+  const cities: City[] = ['Taipei', 'NewTaipei']
+  const results = await Promise.all(
+    cities.map((c) => callTdx<TdxStop[]>(`Bus/Stop/City/${c}`, {
+      $filter: `contains(StopName/Zh_tw,'${safe}')`,
+      $top: 12,
+    }).catch(() => [] as TdxStop[]))
+  )
+  const seen = new Set<string>()
+  return results.flat().filter((s) => {
+    const key = `${s.StopName.Zh_tw}-${s.StopPosition.PositionLat.toFixed(4)}-${s.StopPosition.PositionLon.toFixed(4)}`
+    if (seen.has(key)) return false
+    seen.add(key); return true
+  }).slice(0, 15).map((s) => ({
+    type: 'stop' as const,
+    lat: s.StopPosition.PositionLat,
+    lng: s.StopPosition.PositionLon,
+    label: s.StopName.Zh_tw,
+    subtitle: '公車站',
+  }))
+}
+
+async function searchPlaces(keyword: string): Promise<SearchResult[]> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(keyword)}&format=json&countrycodes=tw&limit=8&viewbox=${NOMINATIM_VIEWBOX}&bounded=1&accept-language=zh-TW`
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+    if (!res.ok) return []
+    const data = (await res.json()) as { lat: string; lon: string; display_name: string; type?: string; class?: string }[]
+    return data.map((p) => {
+      const parts = p.display_name.split(',').map((x) => x.trim()).filter(Boolean)
+      return {
+        type: 'place' as const,
+        lat: parseFloat(p.lat),
+        lng: parseFloat(p.lon),
+        label: parts[0] || p.display_name,
+        subtitle: parts.slice(1, 3).join(' · ') || undefined,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function searchLocation(keyword: string): Promise<SearchResult[]> {
+  const trimmed = keyword.trim()
+  if (trimmed.length < 1) return []
+  const [stops, places] = await Promise.all([
+    searchBusStops(trimmed),
+    searchPlaces(trimmed),
+  ])
+  // 公車站排前面（對公車 App 來說最重要）
+  return [...stops, ...places]
+}
+
 export function formatEta(option: BusOption): string {
   // StopStatus: 0=正常, 1=尚未發車, 2=交管, 3=末班過, 4=未營運, 5=不停靠站
   switch (option.etaStatus) {

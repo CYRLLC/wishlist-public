@@ -1,10 +1,9 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
-import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet'
-import type { LatLng } from 'leaflet'
+import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { AppUser, BusRoute, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, GeoPoint, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
-import type { StopGroup } from './services/data'
-import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, callTdx, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
+import type { SearchResult, StopGroup } from './services/data'
+import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -1109,33 +1108,102 @@ function BusRouteCard({ route, onEdit, run }: { route: BusRoute; onEdit: () => v
   )
 }
 
+function LocationSearchInput({ initial, onPick, placeholder }: { initial: GeoPoint | null; onPick: (p: GeoPoint) => void; placeholder: string }) {
+  const [text, setText] = useState(initial?.label ?? '')
+  const [synced, setSynced] = useState(true)   // input value matches the picked point
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  // Debounced search when user types
+  useEffect(() => {
+    if (synced || !text.trim()) { setResults([]); return }
+    setLoading(true)
+    const h = setTimeout(async () => {
+      try { setResults(await searchLocation(text)) }
+      finally { setLoading(false) }
+    }, 300)
+    return () => { clearTimeout(h); setLoading(false) }
+  }, [text, synced])
+
+  // Click outside to close dropdown
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const choose = (r: SearchResult) => {
+    onPick({ lat: r.lat, lng: r.lng, label: r.label })
+    setText(r.label)
+    setSynced(true)
+    setOpen(false)
+    setResults([])
+  }
+
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setText(e.target.value)
+    setSynced(false)
+    setOpen(true)
+    // Keep label in sync with whatever the user types, even before picking.
+    // The point's coords stay (from the previous pick), only the label changes.
+    if (initial) onPick({ ...initial, label: e.target.value })
+  }
+
+  return (
+    <div className="location-search" ref={wrapRef}>
+      <input value={text} onChange={onChange} onFocus={() => setOpen(true)} placeholder={placeholder} autoComplete="off" />
+      {open && (loading || results.length > 0) && (
+        <div className="search-dropdown">
+          {loading && <div className="search-item muted">搜尋中…</div>}
+          {!loading && results.length === 0 && <div className="search-item muted">沒有結果</div>}
+          {results.map((r, i) => (
+            <button key={`${r.type}-${i}-${r.lat}-${r.lng}`} type="button" className="search-item" onClick={() => choose(r)}>
+              <span className={`search-tag ${r.type}`}>{r.type === 'stop' ? '站' : '點'}</span>
+              <div className="search-text">
+                <div className="search-title">{r.label}</div>
+                {r.subtitle && <div className="muted search-sub">{r.subtitle}</div>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FitBounds({ origin, destination }: { origin: GeoPoint | null; destination: GeoPoint | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (origin && destination) {
+      map.fitBounds([[origin.lat, origin.lng], [destination.lat, destination.lng]], { padding: [40, 40], maxZoom: 16 })
+    } else if (origin) {
+      map.setView([origin.lat, origin.lng], 16)
+    } else if (destination) {
+      map.setView([destination.lat, destination.lng], 16)
+    }
+  }, [origin?.lat, origin?.lng, destination?.lat, destination?.lng, map])
+  return null
+}
+
 function BusRouteForm({ user, initial, onCancel, onDone, run }: { user: AppUser; initial: BusRoute | null; onCancel: () => void; onDone: () => void; run: (task: () => Promise<void>) => void }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [origin, setOrigin] = useState<GeoPoint | null>(initial?.origin ?? null)
   const [destination, setDestination] = useState<GeoPoint | null>(initial?.destination ?? null)
-  const [activeSide, setActiveSide] = useState<'origin' | 'destination'>('origin')
-  const [originLabel, setOriginLabel] = useState(initial?.origin.label ?? '')
-  const [destLabel, setDestLabel] = useState(initial?.destination.label ?? '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
-  const onMapClick = (latlng: LatLng) => {
-    const point = { lat: latlng.lat, lng: latlng.lng }
-    if (activeSide === 'origin') {
-      setOrigin({ ...point, label: originLabel || '起點' })
-    } else {
-      setDestination({ ...point, label: destLabel || '終點' })
-    }
-  }
-
-  const useGeolocation = () => {
+  const useGeolocation = (side: 'origin' | 'destination') => {
     if (!navigator.geolocation) { setErr('瀏覽器不支援定位'); return }
     setErr('')
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        if (activeSide === 'origin') setOrigin({ ...p, label: originLabel || '目前位置' })
-        else setDestination({ ...p, label: destLabel || '目前位置' })
+        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: '目前位置' }
+        if (side === 'origin') setOrigin(p)
+        else setDestination(p)
       },
       (e) => setErr(`定位失敗：${e.message}`),
       { enableHighAccuracy: true, timeout: 8000 }
@@ -1149,14 +1217,12 @@ function BusRouteForm({ user, initial, onCancel, onDone, run }: { user: AppUser;
     if (!origin || !destination) { setErr('請選好起點與終點'); return }
     setSaving(true)
     try {
-      const finalOrigin = { ...origin, label: originLabel.trim() || origin.label || '起點' }
-      const finalDest = { ...destination, label: destLabel.trim() || destination.label || '終點' }
       await new Promise<void>((resolve, reject) => run(async () => {
         try {
           if (initial) {
-            await updateBusRoute(initial.id, { name: name.trim(), origin: finalOrigin, destination: finalDest })
+            await updateBusRoute(initial.id, { name: name.trim(), origin, destination })
           } else {
-            await addBusRoute({ coupleId: user.coupleId!, ownerId: user.id, name: name.trim(), origin: finalOrigin, destination: finalDest })
+            await addBusRoute({ coupleId: user.coupleId!, ownerId: user.id, name: name.trim(), origin, destination })
           }
           resolve()
         } catch (err) { reject(err) }
@@ -1179,36 +1245,57 @@ function BusRouteForm({ user, initial, onCancel, onDone, run }: { user: AppUser;
     <form className="compose bus-form" onSubmit={submit}>
       <strong>{initial ? '編輯路線' : '新增路線'}</strong>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="路線名稱（上班 / 下班 / 健身房…）" required />
-      <div className="bus-side-toggle">
-        <button type="button" className={activeSide === 'origin' ? 'payer-btn active' : 'payer-btn'} onClick={() => setActiveSide('origin')}>
-          設定起點 {origin && <span className="muted">·已選</span>}
-        </button>
-        <button type="button" className={activeSide === 'destination' ? 'payer-btn active' : 'payer-btn'} onClick={() => setActiveSide('destination')}>
-          設定終點 {destination && <span className="muted">·已選</span>}
-        </button>
+
+      <div className="bus-search-row">
+        <label className="bus-search-label"><span className="search-side-tag origin">起</span>起點</label>
+        <LocationSearchInput initial={origin} onPick={setOrigin} placeholder="搜尋公車站、地名、地址" />
+        <button type="button" className="ghost compact" onClick={() => useGeolocation('origin')} title="用我的位置"><LocateFixed size={14} /></button>
       </div>
-      <input value={activeSide === 'origin' ? originLabel : destLabel}
-        onChange={(e) => activeSide === 'origin' ? setOriginLabel(e.target.value) : setDestLabel(e.target.value)}
-        placeholder={`${activeSide === 'origin' ? '起點' : '終點'}地點名稱（家、公司…）`} />
-      <div className="map-actions">
-        <button type="button" className="ghost compact" onClick={useGeolocation}><LocateFixed size={14} />用我的位置</button>
-        <span className="muted" style={{ fontSize: '0.85rem' }}>或在地圖上點選</span>
+
+      <div className="bus-search-row">
+        <label className="bus-search-label"><span className="search-side-tag destination">終</span>終點</label>
+        <LocationSearchInput initial={destination} onPick={setDestination} placeholder="搜尋公車站、地名、地址" />
+        <button type="button" className="ghost compact" onClick={() => useGeolocation('destination')} title="用我的位置"><LocateFixed size={14} /></button>
       </div>
+
       <div className="map-wrap">
-        <MapContainer center={center} zoom={14} style={{ height: '320px', width: '100%' }} key={`${center[0]}-${center[1]}`}>
-          <TileLayer
-            attribution='&copy; OpenStreetMap'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <MapClickHandler onClick={onMapClick} />
-          {origin && <Marker position={[origin.lat, origin.lng]} />}
-          {destination && <Marker position={[destination.lat, destination.lng]} />}
+        <MapContainer center={center} zoom={origin || destination ? 14 : 12} style={{ height: '280px', width: '100%' }}>
+          <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <FitBounds origin={origin} destination={destination} />
+          {origin && (
+            <Marker
+              draggable
+              position={[origin.lat, origin.lng]}
+              eventHandlers={{
+                dragend: (e) => {
+                  const ll = e.target.getLatLng()
+                  setOrigin({ ...origin, lat: ll.lat, lng: ll.lng })
+                },
+              }}
+            >
+              <Tooltip permanent direction="top" offset={[0, -36]}>起點</Tooltip>
+            </Marker>
+          )}
+          {destination && (
+            <Marker
+              draggable
+              position={[destination.lat, destination.lng]}
+              eventHandlers={{
+                dragend: (e) => {
+                  const ll = e.target.getLatLng()
+                  setDestination({ ...destination, lat: ll.lat, lng: ll.lng })
+                },
+              }}
+            >
+              <Tooltip permanent direction="top" offset={[0, -36]}>終點</Tooltip>
+            </Marker>
+          )}
+          {origin && destination && (
+            <Polyline positions={[[origin.lat, origin.lng], [destination.lat, destination.lng]]} pathOptions={{ color: '#dc5b74', weight: 3, dashArray: '6 6' }} />
+          )}
         </MapContainer>
       </div>
-      <div className="map-legend muted">
-        起點：{origin ? `${origin.label} (${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)})` : '尚未選擇'}<br />
-        終點：{destination ? `${destination.label} (${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)})` : '尚未選擇'}
-      </div>
+      <div className="map-legend muted">輸入名稱可搜尋公車站（最準）或一般地點。地圖上的標記可拖曳微調。</div>
       {err && <p className="form-error">{err}</p>}
       <div style={{ display: 'flex', gap: '8px' }}>
         <button type="submit" className="primary" disabled={saving} style={{ flex: 1 }}>{saving ? '儲存中...' : (initial ? '儲存變更' : '新增路線')}</button>
@@ -1216,11 +1303,6 @@ function BusRouteForm({ user, initial, onCancel, onDone, run }: { user: AppUser;
       </div>
     </form>
   )
-}
-
-function MapClickHandler({ onClick }: { onClick: (latlng: LatLng) => void }) {
-  useMapEvents({ click: (e) => onClick(e.latlng) })
-  return null
 }
 
 function Empty({ text }: { text: string }) {
