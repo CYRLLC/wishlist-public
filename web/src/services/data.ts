@@ -813,6 +813,33 @@ async function searchPlaces(keyword: string): Promise<SearchResult[]> {
   }
 }
 
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+export async function findNearbyStopsAround(lat: number, lng: number, radius = 400, limit = 3): Promise<SearchResult[]> {
+  const stops = await getNearbyStops(lat, lng, radius)
+  return stops
+    .map((s) => ({
+      stop: s,
+      dist: haversineMeters(lat, lng, s.StopPosition.PositionLat, s.StopPosition.PositionLon),
+    }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, limit)
+    .map(({ stop, dist }) => ({
+      type: 'stop' as const,
+      lat: stop.StopPosition.PositionLat,
+      lng: stop.StopPosition.PositionLon,
+      label: stop.StopName.Zh_tw,
+      subtitle: `公車站 · ${Math.round(dist)} m`,
+    }))
+}
+
 export async function searchLocation(keyword: string): Promise<SearchResult[]> {
   const trimmed = keyword.trim()
   if (trimmed.length < 1) return []

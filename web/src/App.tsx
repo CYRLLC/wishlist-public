@@ -3,7 +3,7 @@ import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, H
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { AppUser, BusRoute, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, GeoPoint, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
 import type { SearchResult, StopGroup } from './services/data'
-import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
+import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, findNearbyStopsAround, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -1115,13 +1115,15 @@ function BusRouteCard({ route, onEdit, run }: { route: BusRoute; onEdit: () => v
 
 function LocationSearchInput({ initial, onPick, placeholder }: { initial: GeoPoint | null; onPick: (p: GeoPoint) => void; placeholder: string }) {
   const [text, setText] = useState(initial?.label ?? '')
-  const [synced, setSynced] = useState(true)   // input value matches the picked point
+  const [synced, setSynced] = useState(true)
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
+  const [expandedPlace, setExpandedPlace] = useState<SearchResult | null>(null)
+  const [nearbyStops, setNearbyStops] = useState<SearchResult[]>([])
+  const [loadingNearby, setLoadingNearby] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
-  // Debounced search when user types
   useEffect(() => {
     if (synced || !text.trim()) { setResults([]); return }
     setLoading(true)
@@ -1132,48 +1134,98 @@ function LocationSearchInput({ initial, onPick, placeholder }: { initial: GeoPoi
     return () => { clearTimeout(h); setLoading(false) }
   }, [text, synced])
 
-  // Click outside to close dropdown
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false); setExpandedPlace(null)
+      }
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
-  const choose = (r: SearchResult) => {
-    onPick({ lat: r.lat, lng: r.lng, label: r.label })
-    setText(r.label)
+  const pickFinal = (label: string, lat: number, lng: number) => {
+    onPick({ lat, lng, label })
+    setText(label)
     setSynced(true)
     setOpen(false)
+    setExpandedPlace(null)
     setResults([])
+  }
+
+  const handleResultClick = async (r: SearchResult) => {
+    if (r.type === 'stop') {
+      pickFinal(r.label, r.lat, r.lng)
+      return
+    }
+    // Place → expand to show nearby stops
+    setExpandedPlace(r)
+    setLoadingNearby(true)
+    try {
+      const stops = await findNearbyStopsAround(r.lat, r.lng, 400, 3)
+      setNearbyStops(stops)
+    } catch {
+      setNearbyStops([])
+    } finally {
+      setLoadingNearby(false)
+    }
+  }
+
+  const useAreaItself = () => {
+    if (!expandedPlace) return
+    pickFinal(expandedPlace.label, expandedPlace.lat, expandedPlace.lng)
   }
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setText(e.target.value)
     setSynced(false)
     setOpen(true)
-    // Keep label in sync with whatever the user types, even before picking.
-    // The point's coords stay (from the previous pick), only the label changes.
+    setExpandedPlace(null)
     if (initial) onPick({ ...initial, label: e.target.value })
   }
 
   return (
     <div className="location-search" ref={wrapRef}>
       <input value={text} onChange={onChange} onFocus={() => setOpen(true)} placeholder={placeholder} autoComplete="off" />
-      {open && (loading || results.length > 0) && (
+      {open && (
         <div className="search-dropdown">
-          {loading && <div className="search-item muted">搜尋中…</div>}
-          {!loading && results.length === 0 && <div className="search-item muted">沒有結果</div>}
-          {results.map((r, i) => (
-            <button key={`${r.type}-${i}-${r.lat}-${r.lng}`} type="button" className="search-item" onClick={() => choose(r)}>
-              <span className={`search-tag ${r.type}`}>{r.type === 'stop' ? '站' : '點'}</span>
-              <div className="search-text">
-                <div className="search-title">{r.label}</div>
-                {r.subtitle && <div className="muted search-sub">{r.subtitle}</div>}
-              </div>
-            </button>
-          ))}
+          {expandedPlace ? (
+            <>
+              <button type="button" className="search-back" onClick={() => setExpandedPlace(null)}>← 回搜尋結果</button>
+              <div className="search-area-title">「{expandedPlace.label}」附近的站牌</div>
+              {loadingNearby && <div className="search-item muted">尋找附近站牌…</div>}
+              {!loadingNearby && nearbyStops.length === 0 && (
+                <div className="search-item muted">附近 400m 內沒有公車站</div>
+              )}
+              {nearbyStops.map((s, i) => (
+                <button key={`near-${i}`} type="button" className="search-item" onClick={() => pickFinal(s.label, s.lat, s.lng)}>
+                  <span className="search-tag stop">站</span>
+                  <div className="search-text">
+                    <div className="search-title">{s.label}</div>
+                    {s.subtitle && <div className="muted search-sub">{s.subtitle}</div>}
+                  </div>
+                </button>
+              ))}
+              <button type="button" className="search-fallback" onClick={useAreaItself}>
+                直接用「{expandedPlace.label}」作為地點（不綁站牌）
+              </button>
+            </>
+          ) : (
+            <>
+              {loading && <div className="search-item muted">搜尋中…</div>}
+              {!loading && results.length === 0 && text.trim() && <div className="search-item muted">沒有結果</div>}
+              {results.map((r, i) => (
+                <button key={`${r.type}-${i}-${r.lat}-${r.lng}`} type="button" className="search-item" onClick={() => handleResultClick(r)}>
+                  <span className={`search-tag ${r.type}`}>{r.type === 'stop' ? '站' : '點'}</span>
+                  <div className="search-text">
+                    <div className="search-title">{r.label}</div>
+                    {r.subtitle && <div className="muted search-sub">{r.subtitle}</div>}
+                  </div>
+                  {r.type === 'place' && <span className="search-arrow">›</span>}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
