@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { getFunctions } from 'firebase/functions'
 import { getStorage } from 'firebase/storage'
 
 const firebaseConfig = {
@@ -20,3 +21,4 @@ export const firebaseApp = isFirebaseConfigured ? initializeApp(firebaseConfig) 
 export const auth = firebaseApp ? getAuth(firebaseApp) : null
 export const db = firebaseApp ? getFirestore(firebaseApp) : null
 export const storage = (firebaseApp && firebaseConfig.storageBucket) ? getStorage(firebaseApp) : null
+export const functions = firebaseApp ? getFunctions(firebaseApp, 'asia-east1') : null

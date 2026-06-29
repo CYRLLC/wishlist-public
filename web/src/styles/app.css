@@ -488,6 +488,56 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   .amount-row { grid-template-columns: 1fr; }
 }
 
+/* ─── Bus panel ─── */
+.bus-route-card {
+  border-radius: 22px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 10px;
+}
+.bus-route-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  cursor: pointer;
+}
+.bus-route-info { display: grid; gap: 4px; min-width: 0; }
+.bus-route-title { display: flex; align-items: center; gap: 8px; }
+.bus-route-info span { color: var(--muted); font-size: 0.92rem; word-break: break-word; }
+.bus-route-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.bus-route-actions .ghost.compact {
+  min-height: auto; padding: 6px 8px;
+}
+.bus-route-body { padding-top: 4px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+.bus-updated { font-size: 0.78rem; }
+.stop-list { display: grid; gap: 14px; }
+.stop-item { display: grid; gap: 6px; }
+.stop-name { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 0.95rem; }
+.stop-routes { display: grid; gap: 6px; margin-left: 22px; }
+.bus-option {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "name eta" "dest dest";
+  row-gap: 2px; column-gap: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.bus-route-name { grid-area: name; font-weight: 800; }
+.bus-eta { grid-area: eta; font-weight: 900; color: var(--rose-dark); }
+.bus-dest { grid-area: dest; font-size: 0.82rem; }
+[data-theme="dark"] .bus-option { background: rgba(255,255,255,0.04); }
+[data-theme="dark"] .bus-eta { color: var(--rose); }
+
+/* ─── Bus route form ─── */
+.bus-form .bus-side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bus-form .map-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.map-wrap { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+.map-legend { font-size: 0.82rem; line-height: 1.5; }
+.leaflet-container { font-family: inherit; }
+
 @media (prefers-reduced-motion: no-preference) {
   .auth-card, .pair-card, .workspace { animation: rise 520ms ease both; }
   .wish-card, .task-row, .metric { transition: transform 180ms ease, box-shadow 180ms ease; }

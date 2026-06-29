@@ -59,5 +59,13 @@ service cloud.firestore {
         && request.resource.data.body.size() > 0
         && request.resource.data.body.size() <= 500;
     }
+
+    match /bus_routes/{routeId} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId)
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if sameCouple(resource.data.coupleId);
+      allow delete: if sameCouple(resource.data.coupleId);
+    }
   }
 }

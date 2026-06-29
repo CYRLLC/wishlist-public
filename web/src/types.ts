@@ -85,6 +85,19 @@ export type CoupleMessage = {
   createdAt: number
 }
 
+export type GeoPoint = { lat: number; lng: number; label: string }
+
+export type BusRoute = {
+  id: string
+  coupleId: string
+  ownerId: string
+  name: string                // 上班 / 下班 / 健身房 ...
+  origin: GeoPoint
+  destination: GeoPoint
+  createdAt: number
+  order?: number
+}
+
 export type CoupleData = {
   partner?: AppUser | null
   wishes: Wish[]
@@ -92,4 +105,5 @@ export type CoupleData = {
   transactions: PointTransaction[]
   fundEntries: FundEntry[]
   messages: CoupleMessage[]
+  busRoutes: BusRoute[]
 }

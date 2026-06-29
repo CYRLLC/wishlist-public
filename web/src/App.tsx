@@ -1,7 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LogOut, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
-import type { AppUser, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
-import { addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteFundEntry, deleteWish, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
+import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
+import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet'
+import type { LatLng } from 'leaflet'
+import type { AppUser, BusRoute, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, GeoPoint, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
+import type { StopGroup } from './services/data'
+import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, callTdx, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -45,7 +48,7 @@ const expenseCategories: { id: ExpenseCategory; label: string; icon: typeof Uten
 ]
 const categoryById = (id?: ExpenseCategory) => expenseCategories.find((c) => c.id === id) ?? expenseCategories[expenseCategories.length - 1]
 
-const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
+const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [] }
 const money = (value: number, currency: Currency = 'TWD') =>
   new Intl.NumberFormat('zh-TW', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
 
@@ -195,6 +198,7 @@ function App() {
             <Tab id="messages" active={activeTab} setActive={setActiveTab} icon={<MessageCircle size={18} />} label="留言" />
             <Tab id="points" active={activeTab} setActive={setActiveTab} icon={<Star size={18} />} label="點數" />
             <Tab id="fund" active={activeTab} setActive={setActiveTab} icon={<Banknote size={18} />} label="記帳" />
+            <Tab id="bus" active={activeTab} setActive={setActiveTab} icon={<Bus size={18} />} label="公車" />
             <Tab id="profile" active={activeTab} setActive={setActiveTab} icon={<UserRound size={18} />} label="我們" />
             <button className="nav" onClick={toggleDark}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}{darkMode ? '白天' : '夜晚'}</button>
           </nav>
@@ -211,6 +215,7 @@ function App() {
           {activeTab === 'messages' && <MessagePanel user={user} data={data} run={run} />}
           {activeTab === 'points' && <PointsPanel user={{ ...user, points: effectivePoints }} data={data} run={run} />}
           {activeTab === 'fund' && <FundPanel user={user} data={data} run={run} />}
+          {activeTab === 'bus' && <BusPanel user={user} data={data} run={run} />}
           {activeTab === 'profile' && <ProfilePanel user={user} partner={data.partner} />}
         </main>
       </div>
@@ -981,6 +986,241 @@ function ProfilePanel({ user, partner }: { user: AppUser; partner?: AppUser | nu
       </div>
     </section>
   )
+}
+
+// ─── Bus components ───────────────────────────────────────────────────────────
+
+const TAIPEI_CENTER: [number, number] = [25.0478, 121.5170]
+
+function BusPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
+  const [openForm, setOpenForm] = useState(false)
+  const [editing, setEditing] = useState<BusRoute | null>(null)
+
+  const openEdit = (route: BusRoute) => { setEditing(route); setOpenForm(true) }
+  const closeForm = () => { setOpenForm(false); setEditing(null) }
+
+  return (
+    <section className="stack">
+      <Header
+        title="公車"
+        subtitle="儲存常走路線，一次看到沿線哪台車最快到，並能秒切反向。"
+        action={<button className="primary compact" onClick={() => setOpenForm(true)}><Plus size={16} />新增路線</button>}
+      />
+      <GuideCard title="公車怎麼用" steps={[
+        '新增路線時在地圖上點起點與終點，命名（上班、下班、健身房…），存下來。',
+        '點開路線會列出附近公車站、能去到目的地的路線、與預估到站時間。',
+        '右上「反向」一鍵切換 A→B 變成 B→A，不用另外存第二筆。',
+      ]} />
+      {openForm && (
+        <BusRouteForm user={user} initial={editing} onCancel={closeForm} run={run} onDone={closeForm} />
+      )}
+      <div className="card-list">
+        {data.busRoutes.length === 0 && <Empty text="還沒儲存任何路線" />}
+        {data.busRoutes.map((route) => (
+          <BusRouteCard key={route.id} route={route} onEdit={() => openEdit(route)} run={run} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function BusRouteCard({ route, onEdit, run }: { route: BusRoute; onEdit: () => void; run: (task: () => Promise<void>) => void }) {
+  const [reversed, setReversed] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [groups, setGroups] = useState<StopGroup[] | null>(null)
+  const [warning, setWarning] = useState<string>('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+
+  const origin = reversed ? route.destination : route.origin
+  const destination = reversed ? route.origin : route.destination
+
+  const refresh = async () => {
+    setLoading(true); setError('')
+    try {
+      const res = await findBusOptions(origin, destination)
+      setGroups(res.groups)
+      setWarning(res.warning || '')
+      setUpdatedAt(Date.now())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '查詢失敗')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!expanded) return
+    refresh()
+    const t = setInterval(refresh, 30000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, reversed, route.origin.lat, route.origin.lng, route.destination.lat, route.destination.lng])
+
+  const handleDelete = () => {
+    if (window.confirm(`確定要刪除「${route.name}」這條路線？`)) run(() => deleteBusRoute(route.id))
+  }
+
+  return (
+    <article className="bus-route-card">
+      <header className="bus-route-head" onClick={() => setExpanded((v) => !v)}>
+        <div className="bus-route-info">
+          <div className="bus-route-title">
+            <strong>{route.name}</strong>
+            {reversed && <span className="chip">反向中</span>}
+          </div>
+          <span>{origin.label} → {destination.label}</span>
+        </div>
+        <div className="bus-route-actions" onClick={(e) => e.stopPropagation()}>
+          <button className="ghost compact" onClick={() => setReversed((v) => !v)} title="反向"><RotateCw size={14} /></button>
+          <button className="ghost compact" onClick={refresh} title="重新查詢" disabled={!expanded || loading}><RefreshCw size={14} /></button>
+          <button className="ghost compact" onClick={onEdit} title="編輯"><Pencil size={13} /></button>
+          <button className="ghost compact" style={{ color: 'var(--rose-dark)' }} onClick={handleDelete} title="刪除"><Trash2 size={13} /></button>
+        </div>
+      </header>
+      {expanded && (
+        <div className="bus-route-body">
+          {error && <p className="form-error">{error}</p>}
+          {warning && <p className="muted">{warning}</p>}
+          {loading && !groups && <div className="loading">正在查詢路線（首次可能要 5–10 秒載入索引）…</div>}
+          {groups && groups.length > 0 && (
+            <div className="stop-list">
+              {groups.map((g) => (
+                <div key={g.stop.StopUID} className="stop-item">
+                  <div className="stop-name"><MapPin size={14} />{g.stop.StopName.Zh_tw}</div>
+                  <div className="stop-routes">
+                    {g.options.map((opt) => (
+                      <div key={`${opt.routeUID}-${opt.direction}`} className="bus-option">
+                        <div className="bus-route-name">{opt.routeName}</div>
+                        <div className="bus-eta">{formatEta(opt)}</div>
+                        <div className="bus-dest muted">→ {opt.destinationStopName}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {updatedAt && <div className="muted bus-updated">{new Date(updatedAt).toLocaleTimeString('zh-TW')} 更新 · 每 30 秒自動重整</div>}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function BusRouteForm({ user, initial, onCancel, onDone, run }: { user: AppUser; initial: BusRoute | null; onCancel: () => void; onDone: () => void; run: (task: () => Promise<void>) => void }) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [origin, setOrigin] = useState<GeoPoint | null>(initial?.origin ?? null)
+  const [destination, setDestination] = useState<GeoPoint | null>(initial?.destination ?? null)
+  const [activeSide, setActiveSide] = useState<'origin' | 'destination'>('origin')
+  const [originLabel, setOriginLabel] = useState(initial?.origin.label ?? '')
+  const [destLabel, setDestLabel] = useState(initial?.destination.label ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const onMapClick = (latlng: LatLng) => {
+    const point = { lat: latlng.lat, lng: latlng.lng }
+    if (activeSide === 'origin') {
+      setOrigin({ ...point, label: originLabel || '起點' })
+    } else {
+      setDestination({ ...point, label: destLabel || '終點' })
+    }
+  }
+
+  const useGeolocation = () => {
+    if (!navigator.geolocation) { setErr('瀏覽器不支援定位'); return }
+    setErr('')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        if (activeSide === 'origin') setOrigin({ ...p, label: originLabel || '目前位置' })
+        else setDestination({ ...p, label: destLabel || '目前位置' })
+      },
+      (e) => setErr(`定位失敗：${e.message}`),
+      { enableHighAccuracy: true, timeout: 8000 }
+    )
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setErr('')
+    if (!name.trim()) { setErr('請填路線名稱'); return }
+    if (!origin || !destination) { setErr('請選好起點與終點'); return }
+    setSaving(true)
+    try {
+      const finalOrigin = { ...origin, label: originLabel.trim() || origin.label || '起點' }
+      const finalDest = { ...destination, label: destLabel.trim() || destination.label || '終點' }
+      await new Promise<void>((resolve, reject) => run(async () => {
+        try {
+          if (initial) {
+            await updateBusRoute(initial.id, { name: name.trim(), origin: finalOrigin, destination: finalDest })
+          } else {
+            await addBusRoute({ coupleId: user.coupleId!, ownerId: user.id, name: name.trim(), origin: finalOrigin, destination: finalDest })
+          }
+          resolve()
+        } catch (err) { reject(err) }
+      }))
+      onDone()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '儲存失敗')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const center: [number, number] = origin
+    ? [origin.lat, origin.lng]
+    : destination
+      ? [destination.lat, destination.lng]
+      : TAIPEI_CENTER
+
+  return (
+    <form className="compose bus-form" onSubmit={submit}>
+      <strong>{initial ? '編輯路線' : '新增路線'}</strong>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="路線名稱（上班 / 下班 / 健身房…）" required />
+      <div className="bus-side-toggle">
+        <button type="button" className={activeSide === 'origin' ? 'payer-btn active' : 'payer-btn'} onClick={() => setActiveSide('origin')}>
+          設定起點 {origin && <span className="muted">·已選</span>}
+        </button>
+        <button type="button" className={activeSide === 'destination' ? 'payer-btn active' : 'payer-btn'} onClick={() => setActiveSide('destination')}>
+          設定終點 {destination && <span className="muted">·已選</span>}
+        </button>
+      </div>
+      <input value={activeSide === 'origin' ? originLabel : destLabel}
+        onChange={(e) => activeSide === 'origin' ? setOriginLabel(e.target.value) : setDestLabel(e.target.value)}
+        placeholder={`${activeSide === 'origin' ? '起點' : '終點'}地點名稱（家、公司…）`} />
+      <div className="map-actions">
+        <button type="button" className="ghost compact" onClick={useGeolocation}><LocateFixed size={14} />用我的位置</button>
+        <span className="muted" style={{ fontSize: '0.85rem' }}>或在地圖上點選</span>
+      </div>
+      <div className="map-wrap">
+        <MapContainer center={center} zoom={14} style={{ height: '320px', width: '100%' }} key={`${center[0]}-${center[1]}`}>
+          <TileLayer
+            attribution='&copy; OpenStreetMap'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <MapClickHandler onClick={onMapClick} />
+          {origin && <Marker position={[origin.lat, origin.lng]} />}
+          {destination && <Marker position={[destination.lat, destination.lng]} />}
+        </MapContainer>
+      </div>
+      <div className="map-legend muted">
+        起點：{origin ? `${origin.label} (${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)})` : '尚未選擇'}<br />
+        終點：{destination ? `${destination.label} (${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)})` : '尚未選擇'}
+      </div>
+      {err && <p className="form-error">{err}</p>}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button type="submit" className="primary" disabled={saving} style={{ flex: 1 }}>{saving ? '儲存中...' : (initial ? '儲存變更' : '新增路線')}</button>
+        <button type="button" className="ghost" onClick={onCancel} disabled={saving}>取消</button>
+      </div>
+    </form>
+  )
+}
+
+function MapClickHandler({ onClick }: { onClick: (latlng: LatLng) => void }) {
+  useMapEvents({ click: (e) => onClick(e.latlng) })
+  return null
 }
 
 function Empty({ text }: { text: string }) {

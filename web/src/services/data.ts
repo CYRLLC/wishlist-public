@@ -18,9 +18,10 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
-import { auth, db, isFirebaseConfigured, storage } from './firebase'
-import type { AppUser, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, PointTransaction, Wish, WishStatus } from '../types'
+import { auth, db, functions, isFirebaseConfigured, storage } from './firebase'
+import type { AppUser, BusRoute, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, GeoPoint, PointTransaction, Wish, WishStatus } from '../types'
 
 export { isFirebaseConfigured } from './firebase'
 
@@ -34,6 +35,7 @@ type LocalState = {
   transactions: PointTransaction[]
   fundEntries: FundEntry[]
   messages: CoupleMessage[]
+  busRoutes: BusRoute[]
 }
 
 const seed: LocalState = {
@@ -95,6 +97,7 @@ const seed: LocalState = {
     { id: 'msg-1', coupleId: 'demo-couple', authorId: 'demo-b', body: '我剛剛看到你的溫泉願望了，先暫緩但可以一起集點。', createdAt: Date.now() - 180000 },
     { id: 'msg-2', coupleId: 'demo-couple', authorId: 'demo-a', body: '可以，我這週先把洗碗任務接起來。', createdAt: Date.now() - 120000 },
   ],
+  busRoutes: [],
 }
 
 const id = () => crypto.randomUUID()
@@ -223,11 +226,12 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
       transactions: sortNewest(state.transactions.filter((item) => item.userId === userId)),
       fundEntries: sortNewest(state.fundEntries.filter((item) => item.coupleId === coupleId)),
       messages: sortNewest(state.messages.filter((item) => item.coupleId === coupleId)),
+      busRoutes: sortNewest(state.busRoutes.filter((item) => item.coupleId === coupleId)),
     })
     return () => undefined
   }
 
-  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [] }
+  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [] }
   const emit = () => onData({ ...data })
   const unsubs = [
     onSnapshot(query(collection(db, 'users'), where('coupleId', '==', coupleId)), (snap) => {
@@ -252,6 +256,10 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
     }),
     onSnapshot(query(collection(db, 'messages'), where('coupleId', '==', coupleId)), (snap) => {
       data.messages = sortNewest(snap.docs.map((docSnap) => fromDoc<CoupleMessage>(docSnap)))
+      emit()
+    }),
+    onSnapshot(query(collection(db, 'bus_routes'), where('coupleId', '==', coupleId)), (snap) => {
+      data.busRoutes = sortNewest(snap.docs.map((docSnap) => fromDoc<BusRoute>(docSnap)))
       emit()
     }),
   ]
@@ -499,4 +507,263 @@ export async function addMessage(input: Omit<CoupleMessage, 'id' | 'createdAt'>)
   }
   await setDoc(doc(db, 'messages', message.id), message)
   return message
+}
+
+// ─── Bus routes ───────────────────────────────────────────────────────────────
+
+export async function addBusRoute(input: Omit<BusRoute, 'id' | 'createdAt'>) {
+  const route: BusRoute = { ...input, id: id(), createdAt: now() }
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.busRoutes.push(route); writeLocal(state); return route
+  }
+  await setDoc(doc(db, 'bus_routes', route.id), route)
+  return route
+}
+
+export async function updateBusRoute(routeId: string, patch: Partial<Omit<BusRoute, 'id' | 'coupleId' | 'ownerId' | 'createdAt'>>) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.busRoutes = state.busRoutes.map((r) => r.id === routeId ? { ...r, ...patch } : r)
+    writeLocal(state); return
+  }
+  await updateDoc(doc(db, 'bus_routes', routeId), patch)
+}
+
+export async function deleteBusRoute(routeId: string) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.busRoutes = state.busRoutes.filter((r) => r.id !== routeId)
+    writeLocal(state); return
+  }
+  await deleteDoc(doc(db, 'bus_routes', routeId))
+}
+
+// ─── TDX proxy call ───────────────────────────────────────────────────────────
+
+export async function callTdx<T = unknown>(path: string, query?: Record<string, string | number>): Promise<T> {
+  if (!isFirebaseConfigured || !functions) {
+    throw new Error('需要 Firebase 才能查公車資料（本機模式不支援）')
+  }
+  const fn = httpsCallable<{ path: string; query?: Record<string, string | number> }, T>(functions, 'tdxProxy')
+  const res = await fn({ path, query })
+  return res.data
+}
+
+// ─── TDX bus query helpers ────────────────────────────────────────────────────
+
+const BUS_CITIES = ['Taipei', 'NewTaipei'] as const
+type City = typeof BUS_CITIES[number]
+
+export type TdxStop = {
+  StopUID: string
+  StopID: string
+  StopName: { Zh_tw: string; En?: string }
+  StopPosition: { PositionLat: number; PositionLon: number }
+  city: City
+}
+
+type TdxStopOfRouteRaw = {
+  RouteUID: string
+  RouteName: { Zh_tw: string; En?: string }
+  Direction: 0 | 1
+  Stops: { StopUID: string; StopName: { Zh_tw: string } }[]
+}
+
+type StopRouteEntry = {
+  routeUID: string
+  routeName: string
+  direction: 0 | 1
+  index: number
+  city: City
+}
+
+export type BusOption = {
+  routeUID: string
+  routeName: string
+  direction: 0 | 1
+  city: City
+  destinationStopName: string  // dest stop name on this route
+  eta?: number | null          // seconds; null = 尚未發車/末班過/未營運
+  etaStatus?: number           // 0 normal, 1=未發車, 2=交管, 3=末班過, 4=未營運
+}
+
+export type StopGroup = {
+  stop: TdxStop
+  options: BusOption[]
+}
+
+const STOP_INDEX_KEY = 'wishlink-bus-stop-index-v1'
+const STOP_INDEX_TTL = 7 * 24 * 60 * 60 * 1000
+
+type CachedStopIndex = {
+  ts: number
+  byStop: Record<string, StopRouteEntry[]>
+  // routeKey = routeUID + '-' + direction → ordered stop UIDs
+  routeStops: Record<string, string[]>
+}
+
+async function buildStopIndex(): Promise<CachedStopIndex> {
+  const cities: City[] = ['Taipei', 'NewTaipei']
+  const results = await Promise.all(
+    cities.map((c) => callTdx<TdxStopOfRouteRaw[]>(`Bus/StopOfRoute/City/${c}`, { $top: 8000 }))
+  )
+  const byStop: Record<string, StopRouteEntry[]> = {}
+  const routeStops: Record<string, string[]> = {}
+  cities.forEach((city, ci) => {
+    for (const r of results[ci]) {
+      const key = `${r.RouteUID}-${r.Direction}`
+      routeStops[key] = r.Stops.map((s) => s.StopUID)
+      r.Stops.forEach((s, idx) => {
+        if (!byStop[s.StopUID]) byStop[s.StopUID] = []
+        byStop[s.StopUID].push({
+          routeUID: r.RouteUID,
+          routeName: r.RouteName.Zh_tw,
+          direction: r.Direction,
+          index: idx,
+          city,
+        })
+      })
+    }
+  })
+  const cache: CachedStopIndex = { ts: Date.now(), byStop, routeStops }
+  try { localStorage.setItem(STOP_INDEX_KEY, JSON.stringify(cache)) } catch {}
+  return cache
+}
+
+async function getStopIndex(forceRefresh = false): Promise<CachedStopIndex> {
+  if (!forceRefresh) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(STOP_INDEX_KEY) || 'null')
+      if (cached && cached.ts && Date.now() - cached.ts < STOP_INDEX_TTL) return cached
+    } catch {}
+  }
+  return buildStopIndex()
+}
+
+async function getNearbyStops(lat: number, lng: number, radius = 300): Promise<TdxStop[]> {
+  const cities: City[] = ['Taipei', 'NewTaipei']
+  const out = await Promise.all(
+    cities.map(async (city) => {
+      const stops = await callTdx<Omit<TdxStop, 'city'>[]>(`Bus/Stop/City/${city}`, {
+        $spatialFilter: `nearby(${lat},${lng},${radius})`,
+        $top: 30,
+      })
+      return stops.map((s) => ({ ...s, city }))
+    })
+  )
+  const seen = new Set<string>()
+  return out.flat().filter((s) => {
+    if (seen.has(s.StopUID)) return false
+    seen.add(s.StopUID); return true
+  })
+}
+
+type TdxEta = {
+  StopUID: string
+  RouteUID: string
+  Direction: 0 | 1
+  EstimateTime?: number
+  StopStatus?: number
+}
+
+async function fetchEtas(matches: { city: City; routeName: string; stopUID: string; routeUID: string }[]): Promise<Map<string, TdxEta>> {
+  // Group by city + routeName so one query covers all stops on that route.
+  const byRoute = new Map<string, { city: City; routeName: string; stopUIDs: Set<string> }>()
+  for (const m of matches) {
+    const key = `${m.city}::${m.routeName}`
+    if (!byRoute.has(key)) byRoute.set(key, { city: m.city, routeName: m.routeName, stopUIDs: new Set() })
+    byRoute.get(key)!.stopUIDs.add(m.stopUID)
+  }
+  const out = new Map<string, TdxEta>()
+  await Promise.all(
+    Array.from(byRoute.values()).map(async ({ city, routeName, stopUIDs }) => {
+      try {
+        const etas = await callTdx<TdxEta[]>(`Bus/EstimatedTimeOfArrival/City/${city}/${encodeURIComponent(routeName)}`, { $top: 200 })
+        for (const e of etas) {
+          if (stopUIDs.has(e.StopUID)) {
+            out.set(`${e.RouteUID}-${e.Direction}-${e.StopUID}`, e)
+          }
+        }
+      } catch {
+        // swallow per-route failures
+      }
+    })
+  )
+  return out
+}
+
+export async function findBusOptions(origin: GeoPoint, destination: GeoPoint, radius = 300): Promise<{ groups: StopGroup[]; warning?: string }> {
+  const [originStops, destStops] = await Promise.all([
+    getNearbyStops(origin.lat, origin.lng, radius),
+    getNearbyStops(destination.lat, destination.lng, radius),
+  ])
+  if (originStops.length === 0) return { groups: [], warning: `起點附近 ${radius}m 內找不到公車站牌` }
+  if (destStops.length === 0) return { groups: [], warning: `終點附近 ${radius}m 內找不到公車站牌` }
+
+  const index = await getStopIndex()
+  const destStopUIDs = new Set(destStops.map((s) => s.StopUID))
+
+  const groups: StopGroup[] = []
+  const etaJobs: { city: City; routeName: string; stopUID: string; routeUID: string }[] = []
+
+  for (const oStop of originStops) {
+    const routesAtO = index.byStop[oStop.StopUID] || []
+    const options: BusOption[] = []
+    const seenRouteKey = new Set<string>()
+    for (const re of routesAtO) {
+      const key = `${re.routeUID}-${re.direction}`
+      if (seenRouteKey.has(key)) continue
+      const stopList = index.routeStops[key] || []
+      // Look for a dest stop after the origin index, same route+direction.
+      for (let j = re.index + 1; j < stopList.length; j++) {
+        if (destStopUIDs.has(stopList[j])) {
+          const destStop = destStops.find((s) => s.StopUID === stopList[j])
+          if (destStop) {
+            options.push({
+              routeUID: re.routeUID,
+              routeName: re.routeName,
+              direction: re.direction,
+              city: re.city,
+              destinationStopName: destStop.StopName.Zh_tw,
+            })
+            etaJobs.push({ city: re.city, routeName: re.routeName, stopUID: oStop.StopUID, routeUID: re.routeUID })
+            seenRouteKey.add(key)
+            break
+          }
+        }
+      }
+    }
+    if (options.length > 0) groups.push({ stop: oStop, options })
+  }
+
+  if (etaJobs.length === 0) return { groups: [], warning: '附近找不到能到達目的地的路線' }
+
+  const etaMap = await fetchEtas(etaJobs)
+  for (const g of groups) {
+    for (const opt of g.options) {
+      const eta = etaMap.get(`${opt.routeUID}-${opt.direction}-${g.stop.StopUID}`)
+      if (eta) {
+        opt.eta = eta.EstimateTime ?? null
+        opt.etaStatus = eta.StopStatus
+      }
+    }
+    g.options.sort((a, b) => (a.eta ?? 9999) - (b.eta ?? 9999))
+  }
+  groups.sort((a, b) => (a.options[0].eta ?? 9999) - (b.options[0].eta ?? 9999))
+
+  return { groups }
+}
+
+export function formatEta(option: BusOption): string {
+  // StopStatus: 0=正常, 1=尚未發車, 2=交管, 3=末班過, 4=未營運, 5=不停靠站
+  switch (option.etaStatus) {
+    case 1: return '尚未發車'
+    case 2: return '交管中'
+    case 3: return '末班已過'
+    case 4: return '今日未營運'
+    case 5: return '不停靠'
+  }
+  if (option.eta == null) return '—'
+  if (option.eta <= 60) return '進站中'
+  return `${Math.floor(option.eta / 60)} 分`
 }
