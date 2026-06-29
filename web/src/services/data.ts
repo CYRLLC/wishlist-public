@@ -667,25 +667,28 @@ type TdxEta = {
 }
 
 async function fetchEtas(matches: { city: City; routeName: string; stopUID: string; routeUID: string }[]): Promise<Map<string, TdxEta>> {
-  // Group by city + routeName so one query covers all stops on that route.
-  const byRoute = new Map<string, { city: City; routeName: string; stopUIDs: Set<string> }>()
+  // One TDX call per city, filtering by all relevant stop UIDs. Cuts query count from N → 2.
+  const byCity = new Map<City, Set<string>>()
   for (const m of matches) {
-    const key = `${m.city}::${m.routeName}`
-    if (!byRoute.has(key)) byRoute.set(key, { city: m.city, routeName: m.routeName, stopUIDs: new Set() })
-    byRoute.get(key)!.stopUIDs.add(m.stopUID)
+    if (!byCity.has(m.city)) byCity.set(m.city, new Set())
+    byCity.get(m.city)!.add(m.stopUID)
   }
   const out = new Map<string, TdxEta>()
   await Promise.all(
-    Array.from(byRoute.values()).map(async ({ city, routeName, stopUIDs }) => {
+    Array.from(byCity.entries()).map(async ([city, stopUIDs]) => {
+      const uids = Array.from(stopUIDs)
+      if (uids.length === 0) return
+      const filter = uids.map((u) => `StopUID eq '${u}'`).join(' or ')
       try {
-        const etas = await callTdx<TdxEta[]>(`Bus/EstimatedTimeOfArrival/City/${city}/${encodeURIComponent(routeName)}`, { $top: 200 })
+        const etas = await callTdx<TdxEta[]>(`Bus/EstimatedTimeOfArrival/City/${city}`, {
+          $filter: filter,
+          $top: 1000,
+        })
         for (const e of etas) {
-          if (stopUIDs.has(e.StopUID)) {
-            out.set(`${e.RouteUID}-${e.Direction}-${e.StopUID}`, e)
-          }
+          out.set(`${e.RouteUID}-${e.Direction}-${e.StopUID}`, e)
         }
       } catch {
-        // swallow per-route failures
+        // swallow per-city failure; UI will show "—" for missing ETAs
       }
     })
   )

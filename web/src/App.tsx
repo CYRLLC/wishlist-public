@@ -1031,11 +1031,14 @@ function BusRouteCard({ route, onEdit, run }: { route: BusRoute; onEdit: () => v
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const inFlight = useRef(false)
 
   const origin = reversed ? route.destination : route.origin
   const destination = reversed ? route.origin : route.destination
 
   const refresh = async () => {
+    if (inFlight.current) return
+    inFlight.current = true
     setLoading(true); setError('')
     try {
       const res = await findBusOptions(origin, destination)
@@ -1043,8 +1046,10 @@ function BusRouteCard({ route, onEdit, run }: { route: BusRoute; onEdit: () => v
       setWarning(res.warning || '')
       setUpdatedAt(Date.now())
     } catch (e) {
-      setError(e instanceof Error ? e.message : '查詢失敗')
+      const msg = e instanceof Error ? e.message : '查詢失敗'
+      setError(msg.includes('429') ? 'TDX 查太密了，等 30 秒會自動重試' : msg)
     } finally {
+      inFlight.current = false
       setLoading(false)
     }
   }
