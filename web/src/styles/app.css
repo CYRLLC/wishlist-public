@@ -525,7 +525,9 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   border-radius: 12px;
   padding: 8px 12px;
 }
-.bus-route-name { grid-area: name; font-weight: 800; }
+.bus-route-name { grid-area: name; font-weight: 800; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.bus-headsign { font-size: 0.78rem; font-weight: 700; color: var(--rose-dark); background: rgba(220, 91, 116, 0.10); padding: 2px 8px; border-radius: 999px; }
+[data-theme="dark"] .bus-headsign { background: rgba(240, 154, 176, 0.14); color: var(--rose); }
 .bus-eta { grid-area: eta; font-weight: 900; color: var(--rose-dark); }
 .bus-dest { grid-area: dest; font-size: 0.82rem; }
 [data-theme="dark"] .bus-option { background: rgba(255,255,255,0.04); }

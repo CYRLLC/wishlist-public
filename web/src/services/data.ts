@@ -575,6 +575,7 @@ type StopRouteEntry = {
   direction: 0 | 1
   index: number
   city: City
+  headsign: string  // terminus name for this direction (the "往 XXX" you see on the bus)
 }
 
 export type BusOption = {
@@ -582,7 +583,8 @@ export type BusOption = {
   routeName: string
   direction: 0 | 1
   city: City
-  destinationStopName: string  // dest stop name on this route
+  headsign: string             // terminus name ("往 XXX")
+  destinationStopName: string  // dest stop name on this route (where to get off)
   eta?: number | null          // seconds; null = 尚未發車/末班過/未營運
   etaStatus?: number           // 0 normal, 1=未發車, 2=交管, 3=末班過, 4=未營運
 }
@@ -592,7 +594,7 @@ export type StopGroup = {
   options: BusOption[]
 }
 
-const STOP_INDEX_KEY = 'wishlink-bus-stop-index-v1'
+const STOP_INDEX_KEY = 'wishlink-bus-stop-index-v2'
 const STOP_INDEX_TTL = 7 * 24 * 60 * 60 * 1000
 
 type CachedStopIndex = {
@@ -613,6 +615,8 @@ async function buildStopIndex(): Promise<CachedStopIndex> {
     for (const r of results[ci]) {
       const key = `${r.RouteUID}-${r.Direction}`
       routeStops[key] = r.Stops.map((s) => s.StopUID)
+      // Terminus for this direction = last stop in the sequence.
+      const headsign = r.Stops[r.Stops.length - 1]?.StopName.Zh_tw || ''
       r.Stops.forEach((s, idx) => {
         if (!byStop[s.StopUID]) byStop[s.StopUID] = []
         byStop[s.StopUID].push({
@@ -621,6 +625,7 @@ async function buildStopIndex(): Promise<CachedStopIndex> {
           direction: r.Direction,
           index: idx,
           city,
+          headsign,
         })
       })
     }
@@ -727,6 +732,7 @@ export async function findBusOptions(origin: GeoPoint, destination: GeoPoint, ra
               routeName: re.routeName,
               direction: re.direction,
               city: re.city,
+              headsign: re.headsign,
               destinationStopName: destStop.StopName.Zh_tw,
             })
             etaJobs.push({ city: re.city, routeName: re.routeName, stopUID: oStop.StopUID, routeUID: re.routeUID })

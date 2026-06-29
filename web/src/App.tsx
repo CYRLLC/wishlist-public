@@ -1096,9 +1096,12 @@ function BusRouteCard({ route, onEdit, run }: { route: BusRoute; onEdit: () => v
                   <div className="stop-routes">
                     {g.options.map((opt) => (
                       <div key={`${opt.routeUID}-${opt.direction}`} className="bus-option">
-                        <div className="bus-route-name">{opt.routeName}</div>
+                        <div className="bus-route-name">
+                          {opt.routeName}
+                          {opt.headsign && <span className="bus-headsign">往 {opt.headsign}</span>}
+                        </div>
                         <div className="bus-eta">{formatEta(opt)}</div>
-                        <div className="bus-dest muted">→ {opt.destinationStopName}</div>
+                        <div className="bus-dest muted">在「{opt.destinationStopName}」下車</div>
                       </div>
                     ))}
                   </div>
