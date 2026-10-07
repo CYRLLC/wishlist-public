@@ -21,13 +21,15 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, db, functions, isFirebaseConfigured, storage } from './firebase'
-import type { AppUser, BusRoute, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, GeoPoint, PointTransaction, Wish, WishStatus } from '../types'
+import type { AppUser, CalendarEvent, ShoppingItem, BusRoute, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, GeoPoint, PointTransaction, Wish, WishStatus } from '../types'
 
 export { isFirebaseConfigured } from './firebase'
 
 const localKey = 'wishlink-web-demo'
 
 type LocalState = {
+  calendarEvents: CalendarEvent[]
+  shoppingItems: ShoppingItem[]
   users: AppUser[]
   currentUserId?: string
   wishes: Wish[]
@@ -39,6 +41,8 @@ type LocalState = {
 }
 
 const seed: LocalState = {
+  calendarEvents: [],
+  shoppingItems: [],
   users: [
     { id: 'demo-a', email: 'a@wish.local', nickname: '小寧', coupleId: 'demo-couple', points: 18 },
     { id: 'demo-b', email: 'b@wish.local', nickname: '阿宇', coupleId: 'demo-couple', points: 12 },
@@ -102,7 +106,7 @@ const seed: LocalState = {
 
 const id = () => crypto.randomUUID()
 const now = () => Date.now()
-const readLocal = (): LocalState => JSON.parse(localStorage.getItem(localKey) || 'null') || seed
+const readLocal = (): LocalState => ({ ...seed, ...(JSON.parse(localStorage.getItem(localKey) || 'null') || {} ) })
 const writeLocal = (state: LocalState) => localStorage.setItem(localKey, JSON.stringify(state))
 const sortNewest = <T extends { createdAt: number }>(items: T[]) => [...items].sort((a, b) => b.createdAt - a.createdAt)
 
@@ -220,6 +224,8 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
   if (!isFirebaseConfigured || !db) {
     const state = readLocal()
     onData({
+      calendarEvents: state.calendarEvents.filter((item) => item.coupleId === coupleId),
+      shoppingItems: sortNewest(state.shoppingItems.filter((item) => item.coupleId === coupleId)),
       partner: state.users.find((item) => item.coupleId === coupleId && item.id !== userId) || null,
       wishes: sortNewest(state.wishes.filter((item) => item.coupleId === coupleId)),
       tasks: sortNewest(state.tasks.filter((item) => item.coupleId === coupleId)),
@@ -231,9 +237,15 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
     return () => undefined
   }
 
-  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [] }
+  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [] }
   const emit = () => onData({ ...data })
   const unsubs = [
+    onSnapshot(query(collection(db, 'calendar_events'), where('coupleId', '==', coupleId)), (snap) => {
+      data.calendarEvents = snap.docs.map((item) => fromDoc<CalendarEvent>(item)); emit()
+    }),
+    onSnapshot(query(collection(db, 'shopping_items'), where('coupleId', '==', coupleId)), (snap) => {
+      data.shoppingItems = sortNewest(snap.docs.map((item) => fromDoc<ShoppingItem>(item))); emit()
+    }),
     onSnapshot(query(collection(db, 'users'), where('coupleId', '==', coupleId)), (snap) => {
       data.partner = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as AppUser).find((item) => item.id !== userId) || null
       emit()
@@ -869,4 +881,27 @@ export function formatEta(option: BusOption): string {
   if (option.eta == null) return '—'
   if (option.eta <= 60) return '進站中'
   return `${Math.floor(option.eta / 60)} 分`
+}
+
+export async function saveCalendarEvent(input: Omit<CalendarEvent, 'id' | 'createdAt'>, existing?: CalendarEvent) {
+  if (!input.title.trim() || !input.start || !input.end || input.end < input.start) throw new Error('請填寫標題，結束時間不能早於開始時間')
+  const item: CalendarEvent = { ...input, title: input.title.trim(), id: existing?.id ?? id(), createdAt: existing?.createdAt ?? now() }
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.calendarEvents = [...state.calendarEvents.filter((e) => e.id !== item.id), item]; writeLocal(state)
+  } else await setDoc(doc(db, 'calendar_events', item.id), item)
+}
+export async function saveShoppingItem(input: Omit<ShoppingItem, 'id' | 'createdAt'>, existing?: ShoppingItem) {
+  if (!input.title.trim() || !input.list.trim()) throw new Error('請填寫清單及品項名稱')
+  const item: ShoppingItem = { ...input, title: input.title.trim(), list: input.list.trim(), id: existing?.id ?? id(), createdAt: existing?.createdAt ?? now() }
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.shoppingItems = [...state.shoppingItems.filter((e) => e.id !== item.id), item]; writeLocal(state)
+  } else await setDoc(doc(db, 'shopping_items', item.id), item)
+}
+export async function deleteSharedItem(kind: 'calendar' | 'shopping', itemId: string) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    if (kind === 'calendar') state.calendarEvents = state.calendarEvents.filter((e) => e.id !== itemId)
+    else state.shoppingItems = state.shoppingItems.filter((e) => e.id !== itemId)
+    writeLocal(state)
+  } else await deleteDoc(doc(db, kind === 'calendar' ? 'calendar_events' : 'shopping_items', itemId))
 }

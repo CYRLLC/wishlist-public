@@ -99,6 +99,8 @@ export type BusRoute = {
 }
 
 export type CoupleData = {
+  calendarEvents: CalendarEvent[]
+  shoppingItems: ShoppingItem[]
   partner?: AppUser | null
   wishes: Wish[]
   tasks: ChoreTask[]
@@ -106,4 +108,31 @@ export type CoupleData = {
   fundEntries: FundEntry[]
   messages: CoupleMessage[]
   busRoutes: BusRoute[]
+}
+
+export type CalendarEvent = {
+  id: string
+  coupleId: string
+  authorId: string
+  title: string
+  start: string
+  end: string
+  allDay: boolean
+  recurrence: TaskRecurrence
+  participant: 'both' | 'me' | 'partner'
+  note: string
+  createdAt: number
+}
+
+export type ShoppingItem = {
+  id: string
+  coupleId: string
+  authorId: string
+  list: string
+  title: string
+  quantity: string
+  category: string
+  note: string
+  purchased: boolean
+  createdAt: number
 }

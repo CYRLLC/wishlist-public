@@ -1,5 +1,6 @@
+import { CalendarPanel, ShoppingPanel, InviteLink } from './SharedLife'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Banknote, Bell, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
+import { Banknote, Bell, CalendarDays, ListChecks, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { AppUser, BusRoute, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, GeoPoint, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
 import type { SearchResult, StopGroup } from './services/data'
@@ -47,7 +48,7 @@ const expenseCategories: { id: ExpenseCategory; label: string; icon: typeof Uten
 ]
 const categoryById = (id?: ExpenseCategory) => expenseCategories.find((c) => c.id === id) ?? expenseCategories[expenseCategories.length - 1]
 
-const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [] }
+const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [] }
 const money = (value: number, currency: Currency = 'TWD') =>
   new Intl.NumberFormat('zh-TW', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
 
@@ -69,7 +70,7 @@ function App() {
   const [user, setUser] = useState<AppUser | null>(null)
   const [data, setData] = useState<CoupleData>(emptyData)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('wishes')
+  const [activeTab, setActiveTab] = useState('calendar')
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('wishlink-theme') === 'dark')
 
   const effectivePoints = useMemo(
@@ -192,6 +193,8 @@ function App() {
         <aside className="sidebar">
           <div className="brand"><HeartHandshake size={28} /><span>WishLink</span></div>
           <nav>
+            <Tab id="calendar" active={activeTab} setActive={setActiveTab} icon={<CalendarDays size={18} />} label="行事曆" />
+            <Tab id="shopping" active={activeTab} setActive={setActiveTab} icon={<ListChecks size={18} />} label="購物清單" />
             <Tab id="wishes" active={activeTab} setActive={setActiveTab} icon={<Gift size={18} />} label="願望" />
             <Tab id="tasks" active={activeTab} setActive={setActiveTab} icon={<Hammer size={18} />} label="打工" />
             <Tab id="messages" active={activeTab} setActive={setActiveTab} icon={<MessageCircle size={18} />} label="留言" />
@@ -209,6 +212,8 @@ function App() {
           {error && <div className="error">{error}</div>}
           <NotificationCenter notifications={notifications} enabled={browserNoticeEnabled} onEnable={enableBrowserNotifications} onClear={() => setNotifications([])} />
           <CoupleSummary user={user} partner={data.partner} />
+          {activeTab === 'calendar' && <CalendarPanel user={user} events={data.calendarEvents} run={run} />}
+          {activeTab === 'shopping' && <ShoppingPanel user={user} items={data.shoppingItems} run={run} />}
           {activeTab === 'wishes' && <WishPanel user={{ ...user, points: effectivePoints }} data={data} run={run} />}
           {activeTab === 'tasks' && <TaskPanel user={user} tasks={data.tasks} run={run} />}
           {activeTab === 'messages' && <MessagePanel user={user} data={data} run={run} />}
@@ -303,7 +308,7 @@ function AuthScreen({ onDone }: { onDone: (user: AppUser | null) => void }) {
 }
 
 function PairingScreen({ user, onPaired, error, run }: { user: AppUser; onPaired: (coupleId: string) => void; error: string; run: (task: () => Promise<void>) => void }) {
-  const [code, setCode] = useState('demo-b')
+  const [code, setCode] = useState(() => new URLSearchParams(location.search).get('invite') || (isFirebaseConfigured ? '' : 'demo-b'))
   return (
     <section className="pair-card">
       <div>
@@ -312,7 +317,7 @@ function PairingScreen({ user, onPaired, error, run }: { user: AppUser; onPaired
       </div>
       <div className="invite-box">
         <span>我的邀請碼</span>
-        <strong>{user.id}</strong>
+        <strong>{user.id}</strong><InviteLink user={user} />
         <button className="ghost" onClick={() => navigator.clipboard?.writeText(user.id)}><Copy size={16} />複製</button>
       </div>
       <form className="pair-form" onSubmit={(event) => { event.preventDefault(); run(async () => onPaired(await pairWithInviteCode(user, code.trim()))) }}>
@@ -981,7 +986,7 @@ function ProfilePanel({ user, partner }: { user: AppUser; partner?: AppUser | nu
         <span>情侶名稱</span>
         <h2>{coupleName}</h2>
         {partner && <p>{user.email} · {partner.email}</p>}
-        <div className="invite-box"><span>我的邀請碼（給對方加入用）</span><strong>{user.id}</strong></div>
+        <div className="invite-box"><span>我的邀請碼（給對方加入用）</span><strong>{user.id}</strong><InviteLink user={user} /></div>
       </div>
     </section>
   )

@@ -60,6 +60,17 @@ service cloud.firestore {
         && request.resource.data.body.size() <= 500;
     }
 
+    match /{sharedCollection}/{itemId} {
+      allow read: if sharedCollection in ['calendar_events', 'shopping_items'] && sameCouple(resource.data.coupleId);
+      allow create: if sharedCollection in ['calendar_events', 'shopping_items']
+        && sameCouple(request.resource.data.coupleId) && request.resource.data.authorId == request.auth.uid;
+      allow update: if sharedCollection in ['calendar_events', 'shopping_items']
+        && sameCouple(resource.data.coupleId)
+        && request.resource.data.coupleId == resource.data.coupleId
+        && request.resource.data.authorId == resource.data.authorId;
+      allow delete: if sharedCollection in ['calendar_events', 'shopping_items'] && sameCouple(resource.data.coupleId);
+    }
+
     match /bus_routes/{routeId} {
       allow read: if sameCouple(resource.data.coupleId);
       allow create: if sameCouple(request.resource.data.coupleId)
