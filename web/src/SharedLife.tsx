@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { AppUser, CalendarEvent, ShoppingItem } from './types'
-import { saveCalendarEvent, saveShoppingItem, deleteSharedItem } from './services/data'
+import { saveCalendarEvent, saveShoppingItem, deleteSharedItem, createInviteCode } from './services/data'
 type Run = (task:()=>Promise<void>)=>void
 const dayKey=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 export function occursOn(e:CalendarEvent, day:string) {
@@ -11,8 +11,13 @@ export function occursOn(e:CalendarEvent, day:string) {
   for(let i=0;i<=duration;i++){const d=new Date(target);d.setDate(d.getDate()-i);if(dayKey(d)<e.start.slice(0,10))continue;if(e.recurrence==='daily'||e.recurrence==='weekly'&&d.getDay()===first.getDay()||e.recurrence==='monthly'&&d.getDate()===first.getDate())return true}return false
 }
 export function InviteLink({user}:{user:AppUser}) {
- const [message,setMessage]=useState(''); const url=new URL(location.href);url.searchParams.set('invite',user.id)
- return <div><button className="ghost" onClick={async()=>{try{await navigator.clipboard.writeText(url.toString());setMessage('已複製邀請連結')}catch{setMessage('請手動複製連結')}}}>複製邀請連結</button>{message&&<p role="status">{message}<input readOnly aria-label="邀請連結" value={url.toString()} onFocus={e=>e.target.select()}/></p>}</div>
+ const [message,setMessage]=useState(''), [code,setCode]=useState(''), [busy,setBusy]=useState(false)
+ const url=new URL(location.href);url.searchParams.set('invite',code)
+ if(user.coupleId)return <p>已完成配對，無法再產生邀請。</p>
+ return <div><p>邀請限使用一次，24 小時內有效。重新產生會讓舊邀請失效，請只交給你的伴侶。</p>
+   <button className="ghost" disabled={busy} onClick={async()=>{setBusy(true);try{const next=await createInviteCode(user);setCode(next);setMessage('邀請已產生')}catch(e){setMessage(e instanceof Error?e.message:'無法產生邀請')}finally{setBusy(false)}}}>{busy?'產生中…':'產生新邀請'}</button>
+   {code&&<><input readOnly aria-label="一次性邀請碼" value={code} onFocus={e=>e.target.select()}/><button className="ghost" onClick={async()=>{try{await navigator.clipboard.writeText(url.toString());setMessage('已複製邀請連結')}catch{setMessage('請手動複製連結')}}}>複製邀請連結</button><input readOnly aria-label="邀請連結" value={url.toString()} onFocus={e=>e.target.select()}/></>}
+   {message&&<p role="status">{message}</p>}</div>
 }
 export function CalendarPanel({user,events,run}:{user:AppUser;events:CalendarEvent[];run:Run}) {
  const [month,setMonth]=useState(()=>new Date()),[day,setDay]=useState(()=>dayKey(new Date())),[edit,setEdit]=useState<CalendarEvent|null|undefined>()

@@ -10,16 +10,14 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
   query,
-  runTransaction,
   setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
+import { ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, db, functions, isFirebaseConfigured, storage } from './firebase'
 import type { AppUser, CalendarEvent, ShoppingItem, BusRoute, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, GeoPoint, PointTransaction, Wish, WishStatus } from '../types'
 
@@ -137,21 +135,15 @@ export function observeAuth(onUser: (user: AppUser | null) => void) {
   }
 
   const firestore = db
-  return onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
-    if (!fbUser) return onUser(null)
-    const snap = await getDoc(doc(firestore, 'users', fbUser.uid))
-    if (!snap.exists()) return onUser(null)
-    const userData = { id: snap.id, ...snap.data() } as AppUser
-    if (!userData.coupleId) {
-      const couplesSnap = await getDocs(query(collection(firestore, 'couples'), where('members', 'array-contains', fbUser.uid)))
-      if (!couplesSnap.empty) {
-        const coupleId = couplesSnap.docs[0].id
-        await updateDoc(doc(firestore, 'users', fbUser.uid), { coupleId })
-        userData.coupleId = coupleId
-      }
-    }
-    onUser(userData)
+  let stopProfile = () => {}
+  const stopAuth = onAuthStateChanged(auth, (fbUser: FirebaseUser | null) => {
+    stopProfile()
+    if (!fbUser) { onUser(null); return }
+    stopProfile = onSnapshot(doc(firestore, 'users', fbUser.uid), (snap) => {
+      onUser(snap.exists() ? { id: snap.id, ...snap.data() } as AppUser : null)
+    }, () => onUser(null))
   })
+  return () => { stopAuth(); stopProfile() }
 }
 
 export async function register(email: string, password: string, nickname: string) {
@@ -211,13 +203,16 @@ export async function pairWithInviteCode(user: AppUser, partnerCode: string) {
     return coupleId
   }
 
-  const partnerSnap = await getDoc(doc(db, 'users', partnerCode))
-  if (!partnerSnap.exists()) throw new Error('找不到這個邀請碼')
-  const coupleId = id()
-  await setDoc(doc(db, 'couples', coupleId), { id: coupleId, members: [user.id, partnerCode], createdAt: now() })
-  await updateDoc(doc(db, 'users', user.id), { coupleId })
-  // Partner's coupleId is auto-detected from the couples collection on their next app load
-  return coupleId
+  if (!functions) throw new Error('服務未設定')
+  const result = await httpsCallable<{ code: string }, { coupleId: string }>(functions, 'acceptPairInvite')({ code: partnerCode })
+  return result.data.coupleId
+}
+
+export async function createInviteCode(user: AppUser): Promise<string> {
+  if (!isFirebaseConfigured) return user.id
+  if (!functions) throw new Error('服務未設定')
+  const result = await httpsCallable<void, { code: string }>(functions, 'createPairInvite')()
+  return result.data.code
 }
 
 export function observeCoupleData(coupleId: string, userId: string, onData: (data: CoupleData) => void) {
@@ -239,6 +234,8 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
 
   const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [] }
   const emit = () => onData({ ...data })
+  const firestore = db
+  let stopPartner = () => {}
   const unsubs = [
     onSnapshot(query(collection(db, 'calendar_events'), where('coupleId', '==', coupleId)), (snap) => {
       data.calendarEvents = snap.docs.map((item) => fromDoc<CalendarEvent>(item)); emit()
@@ -246,9 +243,14 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
     onSnapshot(query(collection(db, 'shopping_items'), where('coupleId', '==', coupleId)), (snap) => {
       data.shoppingItems = sortNewest(snap.docs.map((item) => fromDoc<ShoppingItem>(item))); emit()
     }),
-    onSnapshot(query(collection(db, 'users'), where('coupleId', '==', coupleId)), (snap) => {
-      data.partner = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as AppUser).find((item) => item.id !== userId) || null
-      emit()
+    onSnapshot(doc(firestore, 'couples', coupleId), (snap) => {
+      stopPartner()
+      const partnerId = (snap.data()?.members as string[] | undefined)?.find((uid) => uid !== userId)
+      if (!partnerId) { data.partner = null; emit(); return }
+      stopPartner = onSnapshot(doc(firestore, 'users', partnerId), (profile) => {
+        data.partner = profile.exists() ? { id: profile.id, ...profile.data() } as AppUser : null
+        emit()
+      })
     }),
     onSnapshot(query(collection(db, 'wishes'), where('coupleId', '==', coupleId)), (snap) => {
       data.wishes = sortNewest(snap.docs.map((docSnap) => fromDoc<Wish>(docSnap)))
@@ -275,7 +277,7 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
       emit()
     }),
   ]
-  return () => unsubs.forEach((unsub) => unsub())
+  return () => { stopPartner(); unsubs.forEach((unsub) => unsub()) }
 }
 
 export async function addWish(input: Omit<Wish, 'id' | 'status' | 'createdAt' | 'updatedAt'>) {
@@ -353,10 +355,24 @@ async function uploadImage(file: File, folder: 'wish-images' | 'expense-images')
       reader.readAsDataURL(compressed)
     })
   }
-  const path = `${folder}/${id()}.jpg`
+  const current = auth?.currentUser
+  if (!current || !db) throw new Error('請先登入')
+  const profile = await getDoc(doc(db, 'users', current.uid))
+  const coupleId = profile.data()?.coupleId
+  if (!coupleId) throw new Error('請先配對')
+  const path = `couples/${coupleId}/${current.uid}/${folder}/${id()}.jpg`
   const ref = storageRef(storage, path)
   const snapshot = await uploadBytes(ref, compressed, { contentType: compressed.type || 'image/jpeg' })
-  return getDownloadURL(snapshot.ref)
+  return `gs://${snapshot.ref.bucket}/${snapshot.ref.fullPath}`
+}
+
+export async function loadPrivateImage(source: string): Promise<string> {
+  if (/^(data:image\/(jpeg|png|webp|gif);|blob:)/.test(source)) return source
+  if (!storage || !functions || !auth?.currentUser) throw new Error('請登入後查看圖片')
+  const image = storageRef(storage, source)
+  if (image.bucket !== storageRef(storage).bucket) throw new Error('圖片來源不符')
+  const result = await httpsCallable<{ path: string }, { dataURL: string }>(functions, 'readPrivateImage')({ path: image.fullPath })
+  return result.data.dataURL
 }
 
 export const uploadWishImage = (file: File) => uploadImage(file, 'wish-images')
@@ -429,13 +445,8 @@ export async function redeemWish(wish: Wish, user: AppUser) {
     return
   }
 
-  const firestore = db
-  await runTransaction(firestore, async (transaction) => {
-    const wishRef = doc(firestore, 'wishes', wish.id)
-    const txRef = doc(firestore, 'transactions', id())
-    transaction.update(wishRef, { status: 'redeemed', updatedAt: now() })
-    transaction.set(txRef, { id: txRef.id, userId: user.id, coupleId: wish.coupleId, amount: -cost, reason: `兌換自己購買權：${wish.title}`, relatedId: wish.id, createdAt: now() })
-  })
+  if (!functions) throw new Error('服務未設定')
+  await httpsCallable(functions, 'settlePoints')({ action: 'redeemWish', id: wish.id })
 }
 
 export async function addSelfReport(input: { coupleId: string; userId: string; title: string; note: string; points: number }) {
@@ -488,12 +499,8 @@ export async function approveTask(task: ChoreTask) {
     return
   }
 
-  const firestore = db
-  await runTransaction(firestore, async (transaction) => {
-    const txRef = doc(firestore, 'transactions', id())
-    transaction.update(doc(firestore, 'tasks', task.id), { status: 'approved' })
-    transaction.set(txRef, { id: txRef.id, userId: task.claimerId, coupleId: task.coupleId, amount: task.points, reason: `完成任務：${task.title}`, relatedId: task.id, createdAt: now() })
-  })
+  if (!functions) throw new Error('服務未設定')
+  await httpsCallable(functions, 'settlePoints')({ action: 'approveTask', id: task.id })
 }
 
 export async function rejectTask(taskId: string, reason: string) {

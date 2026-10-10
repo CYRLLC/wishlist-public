@@ -1,0 +1,143 @@
+const { test, before, after } = require('node:test')
+const assert = require('node:assert/strict')
+const { readFileSync } = require('node:fs')
+const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing')
+const { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where } = require('firebase/firestore')
+const { ref, uploadBytes, getBytes } = require('firebase/storage')
+const backendRequire = require('node:module').createRequire(require.resolve('../functions/package.json'))
+
+const projectId = 'demo-wishlink-security'
+process.env.GCLOUD_PROJECT = projectId
+process.env.FIREBASE_CONFIG = JSON.stringify({ projectId, storageBucket: `${projectId}.appspot.com` })
+let env, api, admin
+const db = uid => env.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore()
+const auth = uid => ({ uid, token: { uid } })
+before(async () => {
+  env = await initializeTestEnvironment({ projectId,
+    firestore: { rules: readFileSync('firestore.rules', 'utf8') },
+    storage: { rules: readFileSync('storage.rules', 'utf8') } })
+  api = require('../functions/lib/security.js')
+  admin = backendRequire('firebase-admin/firestore').getFirestore()
+  await env.withSecurityRulesDisabled(async ctx => {
+    const store = ctx.firestore()
+    for (const [uid, coupleId] of [['a','ab'],['b','ab'],['c','cd'],['d','cd'],['x',null],['m',null],['n',null]]) {
+      await setDoc(doc(store, 'users', uid), { id: uid, email: `${uid}@example.test`, nickname: uid, points: 0, coupleId })
+    }
+    for (const [id, members] of [['ab',['a','b']],['cd',['c','d']]]) await setDoc(doc(store,'couples',id), { id, members })
+    await setDoc(doc(store,'wishes','wish'), { id:'wish', coupleId:'ab', authorId:'a', status:'deferred', deferredPoints:5, title:'test', imageURLs:[] })
+    await setDoc(doc(store,'tasks','task'), { id:'task', coupleId:'ab', creatorId:'a', claimerId:'b', status:'claimed', points:10, title:'test' })
+    await setDoc(doc(store,'messages','message'), { id:'message', coupleId:'ab', authorId:'a', body:'private' })
+    await uploadBytes(ref(ctx.storage(`gs://${projectId}.appspot.com`), 'couples/ab/a/wish-images/photo.jpg'), new Uint8Array([1,2,3]), { contentType:'image/jpeg' })
+    await uploadBytes(ref(ctx.storage(`gs://${projectId}.appspot.com`), 'expense-images/legacy.jpg'), new Uint8Array([1,2,3]), { contentType:'image/jpeg',customMetadata:{wishlinkCoupleId:'ab'} })
+    await setDoc(doc(store,'fund_entries','legacy'), { id:'legacy', coupleId:'ab', userId:'a', imageURLs:[`https://firebasestorage.googleapis.com/v0/b/${projectId}.appspot.com/o/expense-images%2Flegacy.jpg?alt=media&token=old`] })
+  })
+})
+after(async () => { await env?.cleanup() })
+
+test('profiles are private, membership/points cannot be edited by clients', async () => {
+  await assertSucceeds(getDoc(doc(db('a'),'users','a')))
+  await assertSucceeds(getDoc(doc(db('a'),'users','b')))
+  await assertFails(getDoc(doc(db('x'),'users','a')))
+  await assertFails(getDocs(collection(db('x'),'users')))
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'users','a')))
+  await assertSucceeds(updateDoc(doc(db('a'),'users','a'),{ nickname:'new' }))
+  await assertFails(updateDoc(doc(db('a'),'users','a'),{ coupleId:'cd' }))
+  await assertFails(updateDoc(doc(db('x'),'users','a'),{ coupleId:'cd' }))
+  await assertFails(updateDoc(doc(db('a'),'users','b'),{ points:999 }))
+  await assertFails(updateDoc(doc(db('a'),'users','a'),{ points:999 }))
+  await assertFails(setDoc(doc(db('x'),'couples','forged'),{ members:['x','a'] }))
+  await assertFails(setDoc(doc(db('x'),'users','x'),{ id:'x', nickname:'x',email:'x@example.test',points:999,coupleId:'ab' }))
+})
+test('only actual couple members can read shared records and identities stay fixed', async () => {
+  await assertSucceeds(getDocs(query(collection(db('a'),'messages'),where('coupleId','==','ab'))))
+  await assertFails(getDocs(query(collection(db('x'),'messages'),where('coupleId','==','ab'))))
+  await assertFails(updateDoc(doc(db('a'),'wishes','wish'),{ coupleId:'cd' }))
+  await assertFails(updateDoc(doc(db('a'),'wishes','wish'),{ deferredPoints:1 }))
+  await assertFails(updateDoc(doc(db('a'),'tasks','task'),{ creatorId:'b' }))
+  await assertFails(updateDoc(doc(db('a'),'tasks','task'),{ status:'approved' }))
+  await assertFails(setDoc(doc(db('a'),'transactions','forged'),{ userId:'a',coupleId:'ab',amount:999 }))
+})
+test('ordinary tasks, self reports and wish review still work', async () => {
+  await assertSucceeds(setDoc(doc(db('a'),'tasks','new'),{ id:'new',coupleId:'ab',creatorId:'a',points:5,status:'available' }))
+  await assertSucceeds(updateDoc(doc(db('b'),'tasks','new'),{ status:'claimed',claimerId:'b',claimedAt:Date.now(),claimNote:'done' }))
+  await assertSucceeds(setDoc(doc(db('b'),'tasks','report'),{ id:'report',coupleId:'ab',creatorId:'b',claimerId:'b',points:5,status:'claimed',selfReport:true,title:'report' }))
+  await assertSucceeds(setDoc(doc(db('a'),'wishes','new'),{ id:'new',coupleId:'ab',authorId:'a',status:'pending' }))
+  await assertSucceeds(updateDoc(doc(db('b'),'wishes','new'),{ status:'deferred',deferredPoints:20,updatedAt:Date.now() }))
+})
+test('invites are single-use, replaceable and do not expose profiles', async () => {
+  const first = await api.createPairInvite.run({ auth:auth('m'),data:{} })
+  const next = await api.createPairInvite.run({ auth:auth('m'),data:{} })
+  await assert.rejects(api.acceptPairInvite.run({ auth:auth('n'),data:{ code:first.code } }))
+  await assert.rejects(api.acceptPairInvite.run({ auth:auth('m'),data:{ code:next.code } }))
+  await assert.rejects(api.acceptPairInvite.run({ auth:auth('n'),data:{ code:'m' } }))
+  const paired = await api.acceptPairInvite.run({ auth:auth('n'),data:{ code:next.code } })
+  assert.equal((await admin.doc('users/m').get()).data().coupleId,paired.coupleId)
+  assert.equal((await admin.doc('users/n').get()).data().coupleId,paired.coupleId)
+  await assert.rejects(api.acceptPairInvite.run({ auth:auth('x'),data:{ code:next.code } }))
+  await assert.rejects(api.createPairInvite.run({ auth:auth('m'),data:{} }))
+  await assertFails(getDoc(doc(db('x'),'pair_invites','m')))
+})
+test('expired and anonymous invitations are rejected', async () => {
+  const invite = await api.createPairInvite.run({ auth:auth('x'),data:{} })
+  await admin.doc('pair_invites/x').update({ expiresAt:0 })
+  await assert.rejects(api.acceptPairInvite.run({ auth:auth('c'),data:{ code:invite.code } }))
+  await assert.rejects(api.createPairInvite.run({ data:{} }))
+})
+test('server verifies reviewer, denies duplicate awards and spends, and checks balance', async () => {
+  await assert.rejects(api.settlePoints.run({ auth:auth('x'),data:{ action:'approveTask',id:'task' } }))
+  await assert.rejects(api.settlePoints.run({ auth:auth('b'),data:{ action:'approveTask',id:'task' } }))
+  const outcomes = await Promise.allSettled([1,2].map(() => api.settlePoints.run({ auth:auth('a'),data:{ action:'approveTask',id:'task' } })))
+  assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1)
+  assert.equal((await admin.doc('users/b').get()).data().points,10)
+  await assert.rejects(api.settlePoints.run({ auth:auth('b'),data:{ action:'redeemWish',id:'wish' } }))
+  await assert.rejects(api.settlePoints.run({ auth:auth('a'),data:{ action:'redeemWish',id:'wish' } }))
+  await assert.rejects(api.settlePoints.run({ auth:auth('b'),data:{ action:'approveTask',id:'report' } }))
+  await api.settlePoints.run({ auth:auth('a'),data:{ action:'approveTask',id:'report' } })
+  await admin.doc('wishes/redeem').set({ id:'redeem',coupleId:'ab',authorId:'b',status:'deferred',deferredPoints:5,title:'test' })
+  await api.settlePoints.run({ auth:auth('b'),data:{ action:'redeemWish',id:'redeem' } })
+  await assert.rejects(api.settlePoints.run({ auth:auth('b'),data:{ action:'redeemWish',id:'redeem' } }))
+  assert.equal((await admin.doc('users/b').get()).data().points,10)
+})
+test('storage denies anonymous/outsiders, permits partners and isolates uploads', async () => {
+  const path='couples/ab/a/wish-images/photo.jpg'
+  await assertSucceeds(getBytes(ref(env.authenticatedContext('b').storage(`gs://${projectId}.appspot.com`),path)))
+  await assertFails(getBytes(ref(env.unauthenticatedContext().storage(`gs://${projectId}.appspot.com`),path)))
+  await assertFails(getBytes(ref(env.authenticatedContext('x').storage(`gs://${projectId}.appspot.com`),path)))
+  await assertFails(getBytes(ref(env.unauthenticatedContext().storage(`gs://${projectId}.appspot.com`),'expense-images/legacy.jpg')))
+  await assertSucceeds(uploadBytes(ref(env.authenticatedContext('a').storage(`gs://${projectId}.appspot.com`),'couples/ab/a/wish-images/new.jpg'),new Uint8Array([1]),{contentType:'image/jpeg'}))
+  await assertFails(uploadBytes(ref(env.authenticatedContext('b').storage(`gs://${projectId}.appspot.com`),'couples/ab/a/wish-images/forged.jpg'),new Uint8Array([1]),{contentType:'image/jpeg'}))
+  await assertFails(uploadBytes(ref(env.authenticatedContext('a').storage(`gs://${projectId}.appspot.com`),'couples/ab/a/wish-images/html.jpg'),new Uint8Array([1]),{contentType:'text/html'}))
+})
+test('private image endpoint verifies both new paths and legacy record ownership', async () => {
+  const secure = await api.readPrivateImage.run({ auth:auth('b'),data:{path:'couples/ab/a/wish-images/photo.jpg'} })
+  assert.match(secure.dataURL,/^data:image\/jpeg;base64,/)
+  const legacy = await api.readPrivateImage.run({ auth:auth('b'),data:{path:'expense-images/legacy.jpg'} })
+  assert.match(legacy.dataURL,/^data:image\/jpeg;base64,/)
+  await assert.rejects(api.readPrivateImage.run({ auth:auth('c'),data:{path:'expense-images/legacy.jpg'} }))
+  // An outsider cannot gain access by copying the URL into their own expense record.
+  await admin.doc('fund_entries/forged-ref').set({ coupleId:'cd',userId:'c',imageURLs:[`https://firebasestorage.googleapis.com/v0/b/${projectId}.appspot.com/o/expense-images%2Flegacy.jpg?alt=media&token=old`] })
+  await assert.rejects(api.readPrivateImage.run({ auth:auth('c'),data:{path:'expense-images/legacy.jpg'} }))
+  await assert.rejects(api.readPrivateImage.run({ auth:auth('c'),data:{path:'couples/ab/a/wish-images/photo.jpg'} }))
+  await assert.rejects(api.readPrivateImage.run({ data:{path:'expense-images/legacy.jpg'} }))
+})
+
+test('legacy migration rotates token metadata, preserves files and assigns trusted ownership', async () => {
+  const bucket = backendRequire('firebase-admin/storage').getStorage().bucket()
+  const path = 'wish-images/migrate.jpg'
+  const file = bucket.file(path)
+  await file.save(Buffer.from([1,2,3]), { metadata: { contentType:'image/jpeg',metadata:{firebaseStorageDownloadTokens:'old-token'} } })
+  await admin.doc('wishes/migrate').set({ coupleId:'ab',authorId:'a',imageURLs:[`https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/wish-images%2Fmigrate.jpg?alt=media&token=old-token`] })
+  const { execFileSync } = require('node:child_process')
+  const args = ['functions/scripts/revoke-image-tokens.cjs',projectId,bucket.name]
+  execFileSync(process.execPath,[...args,'--dry-run'],{ env:process.env })
+  assert.equal((await file.getMetadata())[0].metadata.firebaseStorageDownloadTokens,'old-token')
+  execFileSync(process.execPath,[...args,'--apply'],{ env:process.env })
+  const [metadata] = await file.getMetadata()
+  assert.notEqual(metadata.metadata.firebaseStorageDownloadTokens,'old-token')
+  assert.equal(metadata.metadata.wishlinkCoupleId,'ab')
+  assert.equal((await file.download())[0].length,3)
+  // Storage emulator 15.18 appends tokens in metadata.update rather than replacing
+  // its internal token list. Verify actual URL invalidation after production migration.
+  const image = await api.readPrivateImage.run({auth:auth('a'),data:{path}})
+  assert.match(image.dataURL,/^data:image\/jpeg;base64,/)
+})

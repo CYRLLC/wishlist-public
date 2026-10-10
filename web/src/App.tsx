@@ -1,3 +1,4 @@
+import { PrivateImage } from './PrivateImage'
 import { CalendarPanel, ShoppingPanel, InviteLink } from './SharedLife'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, Bell, CalendarDays, ListChecks, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
@@ -245,7 +246,7 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   return (
     <div className="lightbox-overlay" onClick={onClose} role="dialog" aria-modal="true">
       <button className="lightbox-close" onClick={(e) => { e.stopPropagation(); onClose() }} aria-label="關閉">×</button>
-      <img src={url} alt="" />
+      <PrivateImage src={url} alt="" />
     </div>
   )
 }
@@ -313,12 +314,11 @@ function PairingScreen({ user, onPaired, error, run }: { user: AppUser; onPaired
     <section className="pair-card">
       <div>
         <h1>配對你的伴侶</h1>
-        <p>把你的邀請碼給對方，或輸入對方的邀請碼。配對後雙方會看到同一組願望、任務與資金資料。</p>
+        <p>產生一次性邀請交給對方，或輸入對方的新邀請碼。配對後雙方會看到同一組願望、任務與資金資料。</p>
       </div>
       <div className="invite-box">
         <span>我的邀請碼</span>
-        <strong>{user.id}</strong><InviteLink user={user} />
-        <button className="ghost" onClick={() => navigator.clipboard?.writeText(user.id)}><Copy size={16} />複製</button>
+        <InviteLink user={user} />
       </div>
       <form className="pair-form" onSubmit={(event) => { event.preventDefault(); run(async () => onPaired(await pairWithInviteCode(user, code.trim()))) }}>
         <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="輸入對方邀請碼" required />
@@ -506,13 +506,13 @@ function WishForm({
           <div className="image-previews">
             {existingURLs.map((url) => (
               <div key={url} className="preview-item">
-                <img src={url} alt="" onClick={() => setPreviewURL(url)} />
+                <PrivateImage src={url} alt="" onClick={() => setPreviewURL(url)} />
                 <button type="button" className="preview-remove" onClick={() => removeExisting(url)}>×</button>
               </div>
             ))}
             {previews.map((src, i) => (
               <div key={i} className="preview-item">
-                <img src={src} alt="" onClick={() => setPreviewURL(src)} />
+                <PrivateImage src={src} alt="" onClick={() => setPreviewURL(src)} />
                 <button type="button" className="preview-remove" onClick={() => removeNew(i)}>×</button>
               </div>
             ))}
@@ -589,7 +589,7 @@ function WishCard({ wish, user, totalFund, reviewer, run }: { wish: Wish; user: 
       {wish.imageURLs && wish.imageURLs.length > 0 && (
         <div className="wish-images">
           {wish.imageURLs.map((url) => (
-            <img key={url} src={url} alt="" onClick={() => setPreviewURL(url)} />
+            <PrivateImage key={url} src={url} alt="" onClick={() => setPreviewURL(url)} />
           ))}
         </div>
       )}
@@ -918,7 +918,7 @@ function ExpenseForm({ user, partner, defaultCurrency, run }: { user: AppUser; p
           <div className="image-previews">
             {previews.map((src, i) => (
               <div key={i} className="preview-item">
-                <img src={src} alt="" />
+                <PrivateImage src={src} alt="" />
                 <button type="button" className="preview-remove" onClick={() => removeFile(i)}>×</button>
               </div>
             ))}
@@ -965,7 +965,7 @@ function ExpenseRow({ entry, payerName, displayCurrency, rates, run }: { entry: 
         {entry.imageURLs && entry.imageURLs.length > 0 && (
           <div className="expense-thumbs">
             {entry.imageURLs.map((url) => (
-              <img key={url} src={url} alt="" onClick={() => setPreviewURL(url)} />
+              <PrivateImage key={url} src={url} alt="" onClick={() => setPreviewURL(url)} />
             ))}
           </div>
         )}
@@ -986,7 +986,7 @@ function ProfilePanel({ user, partner }: { user: AppUser; partner?: AppUser | nu
         <span>情侶名稱</span>
         <h2>{coupleName}</h2>
         {partner && <p>{user.email} · {partner.email}</p>}
-        <div className="invite-box"><span>我的邀請碼（給對方加入用）</span><strong>{user.id}</strong><InviteLink user={user} /></div>
+        <div className="invite-box"><span>我的帳號 ID</span><strong>{user.id}</strong><InviteLink user={user} /></div>
       </div>
     </section>
   )

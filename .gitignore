@@ -30,4 +30,6 @@ web/node_modules/
 web/dist/
 web/.env.local
 web/.env.*.local
+web/*-debug.log
+web/.firebase/
 

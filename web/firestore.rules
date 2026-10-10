@@ -2,80 +2,93 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function isSelf(userId) { return signedIn() && request.auth.uid == userId; }
-    function userDoc(userId) { return get(/databases/$(database)/documents/users/$(userId)); }
-    function sameCouple(coupleId) {
-      return signedIn() && userDoc(request.auth.uid).data.coupleId == coupleId;
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function sameCouple(cid) {
+      return signedIn() && cid is string
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.coupleId == cid
+        && request.auth.uid in get(/databases/$(database)/documents/couples/$(cid)).data.members;
     }
-
-    match /users/{userId} {
-      allow create: if isSelf(userId);
-      allow read: if signedIn();
-      allow update: if isSelf(userId)
-        || (signedIn()
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['coupleId'])
-          && request.resource.data.coupleId is string)
-        || (signedIn()
-          && sameCouple(resource.data.coupleId)
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['points'])
-          && request.resource.data.points is number);
+    function member(uid, cid) { return uid in get(/databases/$(database)/documents/couples/$(cid)).data.members; }
+    function stableIdentity(field) {
+      return request.resource.data.coupleId == resource.data.coupleId
+        && request.resource.data[field] == resource.data[field] && request.resource.data.id == resource.data.id;
     }
-
-    match /couples/{coupleId} {
-      allow create: if signedIn() && request.auth.uid in request.resource.data.members;
-      allow read: if sameCouple(coupleId);
+    match /users/{uid} {
+      allow read: if isSelf(uid) || (sameCouple(resource.data.coupleId) && member(uid, resource.data.coupleId));
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['id', 'email', 'nickname', 'points', 'coupleId', 'createdAt'])
+        && request.resource.data.id == uid && request.resource.data.email == request.auth.token.email
+        && request.resource.data.nickname is string
+        && request.resource.data.points == 0 && request.resource.data.coupleId == null;
+      allow update: if isSelf(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname'])
+        && request.resource.data.nickname is string && request.resource.data.nickname.size() <= 100;
     }
-
-    match /wishes/{wishId} {
-      allow read: if sameCouple(resource.data.coupleId);
-      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.authorId == request.auth.uid;
-      allow update: if sameCouple(resource.data.coupleId);
-      allow delete: if sameCouple(resource.data.coupleId) && resource.data.authorId == request.auth.uid;
+    match /couples/{cid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      allow write: if false;
     }
-
-    match /tasks/{taskId} {
-      allow read: if sameCouple(resource.data.coupleId);
-      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.creatorId == request.auth.uid;
-      allow update: if sameCouple(resource.data.coupleId);
-      allow delete: if sameCouple(resource.data.coupleId) && resource.data.creatorId == request.auth.uid;
-    }
-
-    match /transactions/{transactionId} {
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
-      allow create: if sameCouple(request.resource.data.coupleId);
-    }
-
-    match /fund_entries/{entryId} {
-      allow read: if sameCouple(resource.data.coupleId);
-      allow create: if sameCouple(request.resource.data.coupleId);
-      allow delete: if sameCouple(resource.data.coupleId);
-    }
-
-    match /messages/{messageId} {
+    match /pair_invites/{uid} { allow read, write: if false; }
+    match /wishes/{id} {
       allow read: if sameCouple(resource.data.coupleId);
       allow create: if sameCouple(request.resource.data.coupleId)
-        && request.resource.data.authorId == request.auth.uid
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 500;
+        && request.resource.data.authorId == request.auth.uid && request.resource.data.status == 'pending';
+      allow update: if sameCouple(resource.data.coupleId) && stableIdentity('authorId')
+        && request.resource.data.status != 'redeemed'
+        && ((resource.data.authorId == request.auth.uid && request.resource.data.status == resource.data.status
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'persuasion', 'desireLevel', 'urgency', 'estimatedPrice', 'purchaseURL', 'imageURLs', 'selfPurchase', 'updatedAt']))
+          || (resource.data.authorId != request.auth.uid && resource.data.status == 'pending'
+            && request.resource.data.status in ['approved', 'rejected', 'deferred']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'rejectionReason', 'deferredPoints'])
+            && (request.resource.data.status != 'deferred' || (request.resource.data.deferredPoints is int
+              && request.resource.data.deferredPoints > 0 && request.resource.data.deferredPoints <= 1000000))));
+      allow delete: if sameCouple(resource.data.coupleId) && resource.data.authorId == request.auth.uid;
     }
-
-    match /{sharedCollection}/{itemId} {
+    match /tasks/{id} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId)
+        && request.resource.data.creatorId == request.auth.uid
+        && request.resource.data.points is int && request.resource.data.points > 0 && request.resource.data.points <= 1000000
+        && (request.resource.data.status == 'available'
+          || (request.resource.data.status == 'claimed' && request.resource.data.selfReport == true
+            && request.resource.data.claimerId == request.auth.uid));
+      allow update: if sameCouple(resource.data.coupleId) && stableIdentity('creatorId')
+        && request.resource.data.points == resource.data.points
+        && ((resource.data.status == 'available' && resource.data.creatorId != request.auth.uid
+            && request.resource.data.status == 'claimed' && request.resource.data.claimerId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimerId', 'claimNote', 'claimedAt']))
+          || (resource.data.status == 'claimed' && request.resource.data.status == 'rejected'
+            && ((resource.data.get('selfReport', false) == true && resource.data.claimerId != request.auth.uid)
+              || (resource.data.get('selfReport', false) == false && resource.data.creatorId == request.auth.uid))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'rejectionReason'])));
+      allow delete: if sameCouple(resource.data.coupleId) && resource.data.creatorId == request.auth.uid;
+    }
+    match /transactions/{id} {
+      allow read: if isSelf(resource.data.userId);
+      allow write: if false;
+    }
+    match /fund_entries/{id} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId) && member(request.resource.data.userId, request.resource.data.coupleId);
+      allow delete: if sameCouple(resource.data.coupleId);
+    }
+    match /messages/{id} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 500;
+    }
+    match /{sharedCollection}/{id} {
       allow read: if sharedCollection in ['calendar_events', 'shopping_items'] && sameCouple(resource.data.coupleId);
       allow create: if sharedCollection in ['calendar_events', 'shopping_items']
         && sameCouple(request.resource.data.coupleId) && request.resource.data.authorId == request.auth.uid;
       allow update: if sharedCollection in ['calendar_events', 'shopping_items']
-        && sameCouple(resource.data.coupleId)
-        && request.resource.data.coupleId == resource.data.coupleId
-        && request.resource.data.authorId == resource.data.authorId;
+        && sameCouple(resource.data.coupleId) && stableIdentity('authorId');
       allow delete: if sharedCollection in ['calendar_events', 'shopping_items'] && sameCouple(resource.data.coupleId);
     }
-
-    match /bus_routes/{routeId} {
+    match /bus_routes/{id} {
       allow read: if sameCouple(resource.data.coupleId);
-      allow create: if sameCouple(request.resource.data.coupleId)
-        && request.resource.data.ownerId == request.auth.uid;
-      allow update: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.ownerId == request.auth.uid;
+      allow update: if sameCouple(resource.data.coupleId) && stableIdentity('ownerId');
       allow delete: if sameCouple(resource.data.coupleId);
     }
   }

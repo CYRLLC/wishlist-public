@@ -1,27 +1,19 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Wish images: any signed-in user may upload to wish-images/.
-    // Public read (so URLs returned by getDownloadURL work without auth tokens).
-    // Size cap 5 MB, must be an image type.
-    match /wish-images/{file=**} {
-      allow read: if true;
-      allow write: if request.auth != null
+    function member(cid) {
+      return request.auth != null
+        && request.auth.uid in firestore.get(/databases/(default)/documents/couples/$(cid)).data.members;
+    }
+    match /couples/{cid}/{uid}/{folder}/{filename} {
+      allow read: if member(cid) && folder in ['wish-images', 'expense-images'];
+      allow create: if member(cid) && request.auth.uid == uid
+        && folder in ['wish-images', 'expense-images']
         && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+      allow delete: if member(cid) && request.auth.uid == uid;
     }
-
-    // Expense receipts: same rules as wish-images.
-    match /expense-images/{file=**} {
-      allow read: if true;
-      allow write: if request.auth != null
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-    }
-
-    // Default deny.
-    match /{file=**} {
-      allow read, write: if false;
-    }
+    // Legacy files are served by the authenticated readPrivateImage function.
+    match /{file=**} { allow read, write: if false; }
   }
 }
