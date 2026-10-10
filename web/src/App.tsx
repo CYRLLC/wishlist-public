@@ -272,9 +272,9 @@ function NotificationCenter({ notifications, enabled, onEnable, onClear }: { not
 
 function AuthScreen({ onDone }: { onDone: (user: AppUser | null) => void }) {
   const [isRegister, setIsRegister] = useState(false)
-  const [email, setEmail] = useState('a@wish.local')
-  const [password, setPassword] = useState('password')
-  const [nickname, setNickname] = useState('小寧')
+  const [email, setEmail] = useState(isFirebaseConfigured ? '' : 'a@wish.local')
+  const [password, setPassword] = useState(isFirebaseConfigured ? '' : 'password')
+  const [nickname, setNickname] = useState(isFirebaseConfigured ? '' : '小寧')
   const [error, setError] = useState('')
 
   const submit = async (event: FormEvent) => {
