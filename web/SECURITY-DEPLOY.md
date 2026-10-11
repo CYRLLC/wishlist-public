@@ -12,7 +12,9 @@ This update changes authentication boundaries. Deploy the functions, updated web
 
 ## Deployment
 
-The clean public repository is `CYRLLC/wishlist-public`; the original `CYRLLC/wishlist` stays private because GitHub may retain cached old commits. Firebase remains the same project and existing data is preserved. The public repository's GitHub workflow runs isolated security tests, builds and publishes Pages. It contains only Firebase Web config secrets, not an administrator service account key. Deploy backend functions and rules separately with Firebase CLI as below. Use a maintenance window because older clients will stop working when the rules change.
+The clean public repository is `ynyrworks/wishlist-public`; the original `ynyrworks/wishlist` stays private because GitHub may retain cached old commits. Firebase remains the same project and existing data is preserved. The public repository's GitHub workflow runs isolated security tests, builds and publishes Pages. It contains only Firebase Web config secrets, not an administrator service account key. Deploy backend functions and rules separately with Firebase CLI as below. Use a maintenance window because older clients will stop working when the rules change.
+
+The Pages URL is https://ynyrworks.github.io/wishlist-public/. After an account rename, update Firebase Authentication's authorized domains and any API key HTTP-referrer restrictions to the new Pages hostname, then redeploy and verify login. Do not rename the Firebase project or change the iOS bundle identifier just to match a GitHub username. Existing browser storage and installed PWA shortcuts belong to the previous origin; users may need to sign in again and reinstall their shortcut, while server-side data stays in the same Firebase project.
 
 From `web/` (Node.js 22):
 
