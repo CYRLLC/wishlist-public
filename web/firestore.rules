@@ -85,6 +85,31 @@ service cloud.firestore {
         && sameCouple(resource.data.coupleId) && stableIdentity('authorId');
       allow delete: if sharedCollection in ['calendar_events', 'shopping_items'] && sameCouple(resource.data.coupleId);
     }
+    // Uses are only ever changed by the redeemGiftCoupon / undoGiftRedemption functions.
+    match /gift_coupons/{id} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow create: if sameCouple(request.resource.data.coupleId)
+        && request.resource.data.keys().hasOnly(['id', 'coupleId', 'issuerId', 'holderId', 'title', 'subtitle', 'note', 'theme', 'totalUses', 'remainingUses', 'startsAt', 'expiresAt', 'createdAt', 'updatedAt'])
+        && request.resource.data.id == id
+        && request.resource.data.issuerId == request.auth.uid
+        && request.resource.data.holderId != request.auth.uid
+        && member(request.resource.data.holderId, request.resource.data.coupleId)
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 40
+        && request.resource.data.totalUses is int && request.resource.data.totalUses > 0 && request.resource.data.totalUses <= 10000
+        && request.resource.data.remainingUses == request.resource.data.totalUses
+        && request.resource.data.startsAt is int && request.resource.data.expiresAt is int
+        && request.resource.data.expiresAt > request.resource.data.startsAt;
+      allow update: if sameCouple(resource.data.coupleId) && resource.data.issuerId == request.auth.uid
+        && stableIdentity('issuerId')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'subtitle', 'note', 'theme', 'expiresAt', 'updatedAt'])
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 40
+        && request.resource.data.expiresAt is int && request.resource.data.expiresAt > resource.data.startsAt;
+      allow delete: if sameCouple(resource.data.coupleId) && resource.data.issuerId == request.auth.uid;
+    }
+    match /gift_redemptions/{id} {
+      allow read: if sameCouple(resource.data.coupleId);
+      allow write: if false;
+    }
     match /bus_routes/{id} {
       allow read: if sameCouple(resource.data.coupleId);
       allow create: if sameCouple(request.resource.data.coupleId) && request.resource.data.ownerId == request.auth.uid;

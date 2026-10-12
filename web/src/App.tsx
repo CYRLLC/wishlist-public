@@ -1,11 +1,12 @@
 import { PrivateImage } from './PrivateImage'
 import { CalendarPanel, ShoppingPanel, InviteLink } from './SharedLife'
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Banknote, Bell, CalendarDays, ListChecks, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
+import { GiftPanel } from './Gift'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Banknote, Bell, CalendarDays, Coffee, ListChecks, Bus, Check, Copy, Film, Gift, Hammer, HeartHandshake, Home, LocateFixed, LogOut, MapPin, MessageCircle, Moon, MoreHorizontal, Pencil, Plane, Plus, Receipt, RefreshCw, RotateCw, ShoppingBag, Sparkles, Star, Sun, Trash2, Utensils, UserRound, X } from 'lucide-react'
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { AppUser, BusRoute, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, GeoPoint, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
 import type { SearchResult, StopGroup } from './services/data'
-import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, findNearbyStopsAround, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, resetPassword, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
+import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, findNearbyStopsAround, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, reconcilePoints, redeemWish, register, rejectTask, resetPassword, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -49,7 +50,7 @@ const expenseCategories: { id: ExpenseCategory; label: string; icon: typeof Uten
 ]
 const categoryById = (id?: ExpenseCategory) => expenseCategories.find((c) => c.id === id) ?? expenseCategories[expenseCategories.length - 1]
 
-const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [] }
+const emptyData: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [], giftCoupons: [], giftRedemptions: [] }
 const money = (value: number, currency: Currency = 'TWD') =>
   new Intl.NumberFormat('zh-TW', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
 
@@ -71,7 +72,15 @@ function App() {
   const [user, setUser] = useState<AppUser | null>(null)
   const [data, setData] = useState<CoupleData>(emptyData)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('calendar')
+  // ?gift=<couponId> comes from the card's QR code or an NFC sticker and opens the redeem dialog.
+  const [giftLinkId, setGiftLinkId] = useState(() => new URLSearchParams(location.search).get('gift'))
+  const [activeTab, setActiveTab] = useState(() => giftLinkId ? 'gift' : 'calendar')
+  const clearGiftLink = useCallback(() => {
+    setGiftLinkId(null)
+    const url = new URL(location.href)
+    url.searchParams.delete('gift')
+    history.replaceState(null, '', url)
+  }, [])
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('wishlink-theme') === 'dark')
 
   const effectivePoints = useMemo(
@@ -158,6 +167,31 @@ function App() {
     localStorage.setItem(seenKey, JSON.stringify([...nextSeen].slice(-500)))
   }, [data.wishes, data.tasks, data.partner?.nickname, user?.coupleId, user?.id])
 
+  // Balances written before the server kept users.points in sync can be stale; fix once per session.
+  const reconciled = useRef(false)
+  useEffect(() => {
+    if (!isFirebaseConfigured || !user || reconciled.current || data.transactions.length === 0) return
+    reconciled.current = true
+    if (user.points !== effectivePoints) reconcilePoints().catch(() => { reconciled.current = false })
+  }, [user, data.transactions.length, effectivePoints])
+
+  useEffect(() => {
+    if (!user?.coupleId) return
+    const seenKey = `wishlink-gift-seen-${user.id}`
+    const seen = new Set<string>(JSON.parse(localStorage.getItem(seenKey) || '[]') as string[])
+    // Only recent uses are news; older history on a new device is not.
+    const fresh = data.giftRedemptions.filter((r) => r.redeemedBy !== user.id && !r.undone && !seen.has(r.id) && Date.now() - r.createdAt < 6 * 60 * 60 * 1000)
+    data.giftRedemptions.forEach((r) => seen.add(r.id))
+    localStorage.setItem(seenKey, JSON.stringify([...seen].slice(-500)))
+    const items = fresh.map((r) => {
+      const coupon = data.giftCoupons.find((c) => c.id === r.couponId)
+      return { id: `gift:${r.id}`, title: '禮物券兌換了一次', body: `${data.partner?.nickname || '對方'} 兌換了「${coupon?.title || '禮物券'}」${r.note ? `（${r.note}）` : ''}，剩 ${r.remainingAfter} 次`, createdAt: r.createdAt }
+    })
+    if (items.length === 0) return
+    setNotifications((current) => [...items, ...current].slice(0, 8))
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') items.forEach((item) => new Notification(item.title, { body: item.body }))
+  }, [data.giftRedemptions, data.giftCoupons, data.partner?.nickname, user?.coupleId, user?.id])
+
   const refreshLocalUser = () => {
     if (isFirebaseConfigured) return
     observeAuth((nextUser) => setUser(nextUser))
@@ -200,6 +234,7 @@ function App() {
             <Tab id="tasks" active={activeTab} setActive={setActiveTab} icon={<Hammer size={18} />} label="打工" />
             <Tab id="messages" active={activeTab} setActive={setActiveTab} icon={<MessageCircle size={18} />} label="留言" />
             <Tab id="points" active={activeTab} setActive={setActiveTab} icon={<Star size={18} />} label="點數" />
+            <Tab id="gift" active={activeTab} setActive={setActiveTab} icon={<Coffee size={18} />} label="禮物券" />
             <Tab id="fund" active={activeTab} setActive={setActiveTab} icon={<Banknote size={18} />} label="記帳" />
             <Tab id="bus" active={activeTab} setActive={setActiveTab} icon={<Bus size={18} />} label="公車" />
             <Tab id="profile" active={activeTab} setActive={setActiveTab} icon={<UserRound size={18} />} label="我們" />
@@ -219,6 +254,7 @@ function App() {
           {activeTab === 'tasks' && <TaskPanel user={user} tasks={data.tasks} run={run} />}
           {activeTab === 'messages' && <MessagePanel user={user} data={data} run={run} />}
           {activeTab === 'points' && <PointsPanel user={{ ...user, points: effectivePoints }} data={data} run={run} />}
+          {activeTab === 'gift' && <GiftPanel user={user} data={data} run={run} focusCouponId={giftLinkId} onFocusHandled={clearGiftLink} />}
           {activeTab === 'fund' && <FundPanel user={user} data={data} run={run} />}
           {activeTab === 'bus' && <BusPanel user={user} data={data} run={run} />}
           {activeTab === 'profile' && <ProfilePanel user={user} partner={data.partner} />}
@@ -653,7 +689,7 @@ function TaskPanel({ user, tasks, run }: { user: AppUser; tasks: ChoreTask[]; ru
       <GuideCard title="打工怎麼用" steps={[
         '由其中一方建立任務，選擇週期與點數，對方領取完成後申請點數。',
         '也可點「申報完成」填寫今天做了什麼，建議點數由對方審核後決定是否給點。',
-        '點數一旦審核通過，自動計入帳戶並出現在點數紀錄。',
+        '點數審核通過後自動入帳；每日／每週／每月任務給點後會回到「可申請」，可以再做一次。',
       ]} />
       {reportOpen && (
         <form className="compose" onSubmit={(e) => {
@@ -700,6 +736,8 @@ function TaskRow({ task, user, claimNote, run }: { task: ChoreTask; user: AppUse
   const isCreator = task.creatorId === user.id
   const canClaim = task.status === 'available' && !isCreator && !task.selfReport
   const canReview = task.status === 'claimed' && (task.selfReport ? !isClaimer : isCreator)
+  const [rejecting, setRejecting] = useState(false)
+  const [reason, setReason] = useState('')
 
   return (
     <article className="task-row">
@@ -713,13 +751,15 @@ function TaskRow({ task, user, claimNote, run }: { task: ChoreTask; user: AppUse
             ? `建議 ${task.points} 點 · ${taskStatusLabel[task.status]}`
             : `${recurrenceLabel[task.recurrence || 'once']} · 每次完成 ${task.points} 點 · ${taskStatusLabel[task.status]}`}
         </span>
+        {task.completedCount ? <p>已完成 {task.completedCount} 次{task.lastCompletedAt ? ` · 上次 ${new Date(task.lastCompletedAt).toLocaleDateString('zh-TW')}` : ''}</p> : null}
         {task.claimNote && <p>{task.claimNote}</p>}
+        {rejecting && <form className="inline-fields" onSubmit={(e) => { e.preventDefault(); run(async () => { await rejectTask(task.id, reason.trim() || '需要再確認'); setRejecting(false); setReason('') }) }}><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="退回原因（例如：碗還沒擦乾）" maxLength={200} autoFocus /><button>送出退回</button></form>}
         {task.rejectionReason && <p className="danger-text">退回原因：{task.rejectionReason}</p>}
       </div>
       <div className="actions">
         {canClaim && <button onClick={() => run(() => claimTask(task.id, user.id, claimNote || '已完成'))}>申請點數</button>}
         {canReview && <button onClick={() => run(() => approveTask(task))}>確認給點</button>}
-        {canReview && <button onClick={() => run(() => rejectTask(task.id, '需要再確認'))}>退回</button>}
+        {canReview && <button onClick={() => setRejecting(!rejecting)}>{rejecting ? '取消退回' : '退回'}</button>}
       </div>
     </article>
   )
@@ -747,10 +787,15 @@ function MessagePanel({ user, data, run }: { user: AppUser; data: CoupleData; ru
 
 function PointsPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {
   const redeemable = data.wishes.filter((wish) => wish.authorId === user.id && wish.status === 'deferred')
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
+  const monthEarned = data.transactions.filter((tx) => tx.amount > 0 && tx.createdAt >= monthStart).reduce((sum, tx) => sum + tx.amount, 0)
+  const monthSpent = data.transactions.filter((tx) => tx.amount < 0 && tx.createdAt >= monthStart).reduce((sum, tx) => sum + tx.amount, 0)
+  const totalEarned = data.transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0)
   return <section className="stack"><Header title="點數總覽" subtitle="點數主要用來換取自己購買權，或兌換被暫緩的願望。" />
     <GuideCard title="點數區怎麼用" steps={['點數主要透過完成打工區任務取得。', '想自己買的願望可由對方設定點數門檻，點數足夠後自行兌換。', '兌換後會扣點，並在右側紀錄中留下消費紀錄。']} />
     <div className="points-hero"><Sparkles /><strong>{user.points}</strong><span>目前可用點數</span></div>
-    <div className="columns"><div className="column"><h2>可兌換願望</h2>{redeemable.map((wish) => <article className="task-row" key={wish.id}><div><strong>{wish.title}</strong><span>需要 {wish.deferredPoints} 點</span></div><button onClick={() => run(() => redeemWish(wish, user))}>兌換</button></article>)}{redeemable.length === 0 && <Empty text="沒有可兌換項目" />}</div><div className="column"><h2>點數紀錄</h2>{data.transactions.map((tx) => <article className="task-row" key={tx.id}><div><strong>{tx.reason}</strong><span>{new Date(tx.createdAt).toLocaleString('zh-TW')}</span></div><b className={tx.amount > 0 ? 'gain' : 'spend'}>{tx.amount > 0 ? '+' : ''}{tx.amount}</b></article>)}</div></div></section>
+    <div className="stats"><Metric label="本月賺到" value={`+${monthEarned}`} /><Metric label="本月花掉" value={monthSpent} /><Metric label="累計賺到" value={`+${totalEarned}`} /><Metric label={`${data.partner?.nickname || '對方'}的點數`} value={data.partner?.points ?? '—'} /></div>
+    <div className="columns"><div className="column"><h2>可兌換願望</h2>{redeemable.map((wish) => { const cost = wish.deferredPoints || 0, short = cost - user.points; return <article className="task-row" key={wish.id}><div><strong>{wish.title}</strong><span>需要 {cost} 點{short > 0 ? ` · 還差 ${short} 點` : ' · 點數足夠'}</span><progress max={cost || 1} value={Math.min(user.points, cost)} /></div><button disabled={short > 0} onClick={() => run(() => redeemWish(wish, user))}>兌換</button></article> })}{redeemable.length === 0 && <Empty text="沒有可兌換項目" />}</div><div className="column"><h2>點數紀錄</h2>{data.transactions.map((tx) => <article className="task-row" key={tx.id}><div><strong>{tx.reason}</strong><span>{new Date(tx.createdAt).toLocaleString('zh-TW')}</span></div><b className={tx.amount > 0 ? 'gain' : 'spend'}>{tx.amount > 0 ? '+' : ''}{tx.amount}</b></article>)}</div></div></section>
 }
 
 function FundPanel({ user, data, run }: { user: AppUser; data: CoupleData; run: (task: () => Promise<void>) => void }) {

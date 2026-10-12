@@ -20,7 +20,7 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, db, functions, isFirebaseConfigured, storage } from './firebase'
-import type { AppUser, CalendarEvent, ShoppingItem, BusRoute, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, GeoPoint, PointTransaction, Wish, WishStatus } from '../types'
+import type { AppUser, GiftCoupon, GiftRedemption, CalendarEvent, ShoppingItem, BusRoute, ChoreTask, CoupleData, CoupleMessage, Currency, FundEntry, GeoPoint, PointTransaction, Wish, WishStatus } from '../types'
 
 export { isFirebaseConfigured } from './firebase'
 
@@ -37,6 +37,8 @@ type LocalState = {
   fundEntries: FundEntry[]
   messages: CoupleMessage[]
   busRoutes: BusRoute[]
+  giftCoupons: GiftCoupon[]
+  giftRedemptions: GiftRedemption[]
 }
 
 const seed: LocalState = {
@@ -101,6 +103,8 @@ const seed: LocalState = {
     { id: 'msg-2', coupleId: 'demo-couple', authorId: 'demo-a', body: '可以，我這週先把洗碗任務接起來。', createdAt: Date.now() - 120000 },
   ],
   busRoutes: [],
+  giftCoupons: [],
+  giftRedemptions: [],
 }
 
 const id = () => crypto.randomUUID()
@@ -235,11 +239,13 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
       fundEntries: sortNewest(state.fundEntries.filter((item) => item.coupleId === coupleId)),
       messages: sortNewest(state.messages.filter((item) => item.coupleId === coupleId)),
       busRoutes: sortNewest(state.busRoutes.filter((item) => item.coupleId === coupleId)),
+      giftCoupons: sortNewest(state.giftCoupons.filter((item) => item.coupleId === coupleId)),
+      giftRedemptions: sortNewest(state.giftRedemptions.filter((item) => item.coupleId === coupleId)),
     })
     return () => undefined
   }
 
-  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [] }
+  const data: CoupleData = { partner: null, wishes: [], tasks: [], transactions: [], fundEntries: [], messages: [], busRoutes: [], calendarEvents: [], shoppingItems: [], giftCoupons: [], giftRedemptions: [] }
   const emit = () => onData({ ...data })
   const firestore = db
   let stopPartner = () => {}
@@ -281,6 +287,14 @@ export function observeCoupleData(coupleId: string, userId: string, onData: (dat
     }),
     onSnapshot(query(collection(db, 'bus_routes'), where('coupleId', '==', coupleId)), (snap) => {
       data.busRoutes = sortNewest(snap.docs.map((docSnap) => fromDoc<BusRoute>(docSnap)))
+      emit()
+    }),
+    onSnapshot(query(collection(db, 'gift_coupons'), where('coupleId', '==', coupleId)), (snap) => {
+      data.giftCoupons = sortNewest(snap.docs.map((docSnap) => fromDoc<GiftCoupon>(docSnap)))
+      emit()
+    }),
+    onSnapshot(query(collection(db, 'gift_redemptions'), where('coupleId', '==', coupleId)), (snap) => {
+      data.giftRedemptions = sortNewest(snap.docs.map((docSnap) => fromDoc<GiftRedemption>(docSnap)))
       emit()
     }),
   ]
@@ -499,7 +513,10 @@ export async function approveTask(task: ChoreTask) {
   if (!task.claimerId) throw new Error('這個任務尚未有人申請')
   if (!isFirebaseConfigured || !db) {
     const state = readLocal()
-    state.tasks = state.tasks.map((item) => item.id === task.id ? { ...item, status: 'approved' } : item)
+    const recurring = !task.selfReport && task.recurrence !== 'once'
+    state.tasks = state.tasks.map((item) => item.id !== task.id ? item : recurring
+      ? { ...item, status: 'available', claimerId: null, claimNote: '', claimedAt: null, lastCompletedAt: now(), completedCount: (item.completedCount || 0) + 1 }
+      : { ...item, status: 'approved' })
     state.users = state.users.map((item) => item.id === task.claimerId ? { ...item, points: item.points + task.points } : item)
     state.transactions.push({ id: id(), userId: task.claimerId, coupleId: task.coupleId, amount: task.points, reason: `完成任務：${task.title}`, relatedId: task.id, createdAt: now() })
     writeLocal(state)
@@ -918,4 +935,71 @@ export async function deleteSharedItem(kind: 'calendar' | 'shopping', itemId: st
     else state.shoppingItems = state.shoppingItems.filter((e) => e.id !== itemId)
     writeLocal(state)
   } else await deleteDoc(doc(db, kind === 'calendar' ? 'calendar_events' : 'shopping_items', itemId))
+}
+
+// ─── Gift coupons ─────────────────────────────────────────────────────────────
+
+export async function createGiftCoupon(input: Omit<GiftCoupon, 'id' | 'remainingUses' | 'createdAt' | 'updatedAt'>) {
+  if (!input.title.trim()) throw new Error('請填寫禮物券名稱')
+  if (!Number.isSafeInteger(input.totalUses) || input.totalUses < 1 || input.totalUses > 10000) throw new Error('次數需介於 1 到 10000')
+  if (input.expiresAt <= input.startsAt) throw new Error('到期日需晚於開始日')
+  const coupon: GiftCoupon = { ...input, title: input.title.trim(), id: id(), remainingUses: input.totalUses, createdAt: now(), updatedAt: now() }
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.giftCoupons.push(coupon); writeLocal(state); return coupon
+  }
+  await setDoc(doc(db, 'gift_coupons', coupon.id), coupon)
+  return coupon
+}
+
+export async function updateGiftCoupon(couponId: string, patch: Pick<GiftCoupon, 'title' | 'subtitle' | 'note' | 'theme' | 'expiresAt'>) {
+  if (!patch.title.trim()) throw new Error('請填寫禮物券名稱')
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.giftCoupons = state.giftCoupons.map((c) => c.id === couponId ? { ...c, ...patch, updatedAt: now() } : c)
+    writeLocal(state); return
+  }
+  await updateDoc(doc(db, 'gift_coupons', couponId), { ...patch, title: patch.title.trim(), updatedAt: now() })
+}
+
+export async function deleteGiftCoupon(couponId: string) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal(); state.giftCoupons = state.giftCoupons.filter((c) => c.id !== couponId); writeLocal(state); return
+  }
+  await deleteDoc(doc(db, 'gift_coupons', couponId))
+}
+
+// requestId makes a retried or double-tapped redemption count once.
+export async function redeemGiftCoupon(coupon: GiftCoupon, userId: string, note = '', requestId = id()) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    const current = state.giftCoupons.find((c) => c.id === coupon.id)
+    if (!current) throw new Error('找不到這張禮物券')
+    if (state.giftRedemptions.some((r) => r.id === requestId)) return current.remainingUses
+    if (now() > current.expiresAt) throw new Error('禮物券已過期')
+    if (current.remainingUses <= 0) throw new Error('次數已經用完了')
+    const remainingUses = current.remainingUses - 1
+    state.giftCoupons = state.giftCoupons.map((c) => c.id === coupon.id ? { ...c, remainingUses, updatedAt: now() } : c)
+    state.giftRedemptions.push({ id: requestId, couponId: coupon.id, coupleId: coupon.coupleId, holderId: coupon.holderId, redeemedBy: userId, note, remainingAfter: remainingUses, undone: false, createdAt: now() })
+    writeLocal(state)
+    return remainingUses
+  }
+  if (!functions) throw new Error('服務未設定')
+  const result = await httpsCallable<{ couponId: string; requestId: string; note: string }, { remainingUses: number }>(functions, 'redeemGiftCoupon')({ couponId: coupon.id, requestId: requestId.replace(/[^A-Za-z0-9_-]/g, ''), note })
+  return result.data.remainingUses
+}
+
+export async function undoGiftRedemption(redemption: GiftRedemption, userId: string) {
+  if (!isFirebaseConfigured || !db) {
+    const state = readLocal()
+    state.giftRedemptions = state.giftRedemptions.map((r) => r.id === redemption.id ? { ...r, undone: true, undoneBy: userId, undoneAt: now() } : r)
+    state.giftCoupons = state.giftCoupons.map((c) => c.id === redemption.couponId ? { ...c, remainingUses: Math.min(c.totalUses, c.remainingUses + 1) } : c)
+    writeLocal(state); return
+  }
+  if (!functions) throw new Error('服務未設定')
+  await httpsCallable(functions, 'undoGiftRedemption')({ id: redemption.id })
+}
+
+export async function reconcilePoints() {
+  if (!isFirebaseConfigured || !functions) return
+  await httpsCallable(functions, 'reconcilePoints')()
 }

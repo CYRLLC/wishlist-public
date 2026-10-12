@@ -45,7 +45,9 @@ export type ChoreTask = {
   rejectionReason?: string
   selfReport?: boolean
   createdAt: number
-  claimedAt?: number
+  claimedAt?: number | null
+  lastCompletedAt?: number
+  completedCount?: number
 }
 
 export type PointTransaction = {
@@ -108,6 +110,8 @@ export type CoupleData = {
   fundEntries: FundEntry[]
   messages: CoupleMessage[]
   busRoutes: BusRoute[]
+  giftCoupons: GiftCoupon[]
+  giftRedemptions: GiftRedemption[]
 }
 
 export type CalendarEvent = {
@@ -134,5 +138,38 @@ export type ShoppingItem = {
   category: string
   note: string
   purchased: boolean
+  createdAt: number
+}
+
+export type GiftTheme = 'coffee' | 'rose' | 'night'
+
+export type GiftCoupon = {
+  id: string
+  coupleId: string
+  issuerId: string            // who gives the gift and fulfils each use (e.g. the barista)
+  holderId: string            // who receives the gift
+  title: string
+  subtitle: string
+  note: string
+  theme: GiftTheme
+  totalUses: number
+  remainingUses: number       // maintained by the redeemGiftCoupon function only
+  startsAt: number
+  expiresAt: number
+  createdAt: number
+  updatedAt: number
+}
+
+export type GiftRedemption = {
+  id: string
+  couponId: string
+  coupleId: string
+  holderId: string
+  redeemedBy: string
+  note: string
+  remainingAfter: number
+  undone: boolean
+  undoneBy?: string
+  undoneAt?: number
   createdAt: number
 }

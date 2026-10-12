@@ -94,13 +94,34 @@ export const settlePoints = onCall(options, async (req) => {
     const balance = history.empty ? Number(profile.data()?.points || 0)
       : history.docs.reduce((sum, d) => sum + Number(d.data().amount || 0), 0)
     if (!Number.isSafeInteger(balance) || balance + amount < 0) throw new HttpsError('failed-precondition', '點數不足')
-    tx.update(itemRef, { status: action === 'approveTask' ? 'approved' : 'redeemed', updatedAt: Date.now() })
+    const recurring = action === 'approveTask' && !value.selfReport && ['daily', 'weekly', 'monthly'].includes(value.recurrence)
+    if (recurring) {
+      // Recurring chores go back on the board so they can be done again; the history lives in transactions.
+      tx.update(itemRef, { status: 'available', claimerId: null, claimNote: '', claimedAt: null,
+        lastCompletedAt: Date.now(), completedCount: Number(value.completedCount || 0) + 1 })
+    } else {
+      tx.update(itemRef, { status: action === 'approveTask' ? 'approved' : 'redeemed', updatedAt: Date.now() })
+    }
     tx.update(profileRef, { points: balance + amount })
     const record = db.collection('transactions').doc()
     tx.create(record, { id: record.id, userId: target, coupleId: value.coupleId, amount,
       reason: `${action === 'approveTask' ? '完成任務' : '兌換願望'}：${value.title}`, relatedId: itemId, createdAt: Date.now() })
   })
   return { ok: true }
+})
+
+// Older records were written before the server kept users.points in sync; recompute it from the ledger.
+export const reconcilePoints = onCall(options, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', '請先登入')
+  const profileRef = db.doc(`users/${identifier(req.auth.uid)}`)
+  return db.runTransaction(async (tx) => {
+    const [profile, history] = await Promise.all([tx.get(profileRef), tx.get(db.collection('transactions').where('userId', '==', req.auth!.uid))])
+    if (!profile.exists) throw new HttpsError('not-found', '找不到帳號資料')
+    const balance = history.docs.reduce((sum, d) => sum + Number(d.data().amount || 0), 0)
+    if (!Number.isSafeInteger(balance)) throw new HttpsError('failed-precondition', '點數紀錄異常')
+    if (profile.data()?.points !== balance) tx.update(profileRef, { points: balance })
+    return { points: balance }
+  })
 })
 
 export const readPrivateImage = onCall(options, async (req) => {

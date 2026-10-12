@@ -1,7 +1,8 @@
 import { defineSecret } from 'firebase-functions/params'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger, setGlobalOptions } from 'firebase-functions/v2'
-export { createPairInvite, acceptPairInvite, settlePoints, readPrivateImage } from './security'
+export { createPairInvite, acceptPairInvite, settlePoints, reconcilePoints, readPrivateImage } from './security'
+export { redeemGiftCoupon, undoGiftRedemption } from './gift'
 
 setGlobalOptions({ region: 'asia-east1', maxInstances: 10 })
 

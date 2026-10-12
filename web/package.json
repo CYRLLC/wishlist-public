@@ -16,6 +16,7 @@
     "firebase": "latest",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
+    "qrcode": "^1.5.4",
     "react": "latest",
     "react-dom": "latest",
     "react-leaflet": "^5.0.0",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3"
   },

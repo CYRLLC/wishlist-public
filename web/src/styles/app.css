@@ -260,7 +260,7 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
   .app-shell { grid-template-columns: 1fr; padding-bottom: 84px; }
   .sidebar { position: fixed; inset: auto 12px 12px; height: auto; z-index: 10; border-radius: 24px; padding: 10px; }
   .brand, .sidebar .ghost { display: none; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
   .nav { justify-content: center; min-height: 54px; padding: 0 6px; font-size: 0.75rem; flex-direction: column; gap: 3px; }
   .section-head, .pair-form, .task-row { flex-direction: column; align-items: stretch; }
   .stats, .columns, .form-grid, .compose.row, .task-form, .couple-summary, .message-compose, .profile-grid, .notification-center { grid-template-columns: 1fr; }
@@ -636,3 +636,83 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--mint
 .shopping-check { display:flex; align-items:center; gap:14px; }
 .purchased strong { text-decoration:line-through; opacity:.55; }
 @media(max-width:600px) { .calendar-day { min-height:60px; } .life-card { padding:12px; } }
+
+/* ─── Gift coupons ─────────────────────────────────────────────────────────── */
+.gift-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 22px; align-items: start; }
+.gift-wrap { display: grid; gap: 12px; }
+.gift-card {
+  --card-a: #2b1a12; --card-b: #6b4228; --card-c: #b57a45; --card-ink: #fff8f0; --card-accent: #ffd699;
+  position: relative; overflow: hidden; border-radius: 28px; padding: 22px; display: grid; gap: 14px;
+  color: var(--card-ink);
+  background: radial-gradient(circle at 85% 12%, rgba(255, 255, 255, 0.18), transparent 40%), linear-gradient(145deg, var(--card-a), var(--card-b) 58%, var(--card-c));
+  box-shadow: 0 24px 60px rgba(60, 30, 15, 0.32);
+}
+.gift-card.theme-rose { --card-a: #6d1f35; --card-b: #b8405c; --card-c: #f08aa0; --card-accent: #ffe1e8; }
+.gift-card.theme-night { --card-a: #0d0c2b; --card-b: #2a2468; --card-c: #5a4db0; --card-accent: #cfc6ff; }
+.gift-card::after { content: ""; position: absolute; inset: auto -40px -70px auto; width: 200px; height: 200px; border-radius: 50%; border: 26px solid rgba(255, 255, 255, 0.07); pointer-events: none; }
+.gift-card header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.gift-card h2 { margin: 4px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.7rem; letter-spacing: -0.02em; }
+.gift-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--card-accent, var(--rose-dark)); font-size: 0.82rem; font-weight: 900; letter-spacing: 0.04em; }
+.gift-state { flex: none; border-radius: 999px; padding: 5px 10px; font-size: 0.78rem; font-weight: 900; background: rgba(255, 255, 255, 0.16); }
+.gift-count { display: flex; align-items: baseline; gap: 8px; }
+.gift-count strong { font-family: Georgia, "Times New Roman", serif; font-size: clamp(3.4rem, 12vw, 4.6rem); line-height: 0.9; color: var(--card-accent); }
+.gift-count span { opacity: 0.8; font-weight: 700; }
+.gift-card progress { width: 100%; height: 8px; appearance: none; border: 0; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, 0.18); }
+.gift-card progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.18); }
+.gift-card progress::-webkit-progress-value { background: var(--card-accent); border-radius: 999px; }
+.gift-card progress::-moz-progress-bar { background: var(--card-accent); }
+.gift-card dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gift-card dl div:last-child { grid-column: 1 / -1; }
+.gift-card dt { font-size: 0.75rem; opacity: 0.7; }
+.gift-card dd { margin: 2px 0 0; font-weight: 800; }
+.gift-note { margin: 0; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, 0.25); line-height: 1.6; opacity: 0.92; white-space: pre-wrap; }
+.gift-card.expired, .gift-card.used-up { filter: grayscale(0.7); opacity: 0.8; }
+.gift-card.locked { justify-items: center; text-align: center; padding: 42px 22px; }
+.gift-card.locked strong { font-size: 1.2rem; }
+.gift-qr { justify-self: center; display: grid; justify-items: center; gap: 8px; background: #fff; color: #2b1d18; border-radius: 20px; padding: 14px; }
+.gift-qr img { width: min(220px, 60vw); height: auto; display: block; image-rendering: pixelated; }
+.gift-qr small { font-size: 0.78rem; }
+.gift-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.gift-stats div { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 10px 12px; display: grid; gap: 2px; }
+.gift-stats span { color: var(--muted); font-size: 0.8rem; }
+.gift-stats strong { font-size: 1.3rem; }
+.gift-actions { flex-wrap: wrap; }
+.gift-actions button.primary { flex: 1 1 140px; background: #2b1d18; color: #fff6ef; box-shadow: 0 12px 26px rgba(43, 29, 24, 0.22); }
+[data-theme="dark"] .gift-actions button.primary { background: var(--rose); color: #07071f; }
+.gift-actions button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.gift-copied { margin: 0; overflow-wrap: anywhere; }
+.gift-log { display: grid; gap: 8px; }
+.gift-log h3 { margin: 4px 0 0; font-size: 1rem; }
+.gift-log-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.gift-log-row div { display: grid; gap: 2px; }
+.gift-log-row span { color: var(--muted); font-size: 0.85rem; }
+.gift-log-row.undone { opacity: 0.55; }
+.gift-log-row.undone strong { text-decoration: line-through; }
+.gift-form label { display: grid; gap: 6px; font-size: 0.88rem; color: var(--muted); }
+.gift-form .section-head { align-items: center; }
+.gift-dialog-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(20, 10, 6, 0.55); backdrop-filter: blur(6px); }
+.gift-dialog {
+  --card-a: #2b1a12; --card-b: #6b4228; --card-c: #b57a45; --card-accent: #ffd699;
+  width: min(420px, 100%); border-radius: 28px; padding: 24px; display: grid; gap: 14px; color: #fff8f0;
+  background: linear-gradient(145deg, var(--card-a), var(--card-b) 58%, var(--card-c)); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+}
+.gift-dialog.theme-rose { --card-a: #6d1f35; --card-b: #b8405c; --card-c: #f08aa0; --card-accent: #ffe1e8; }
+.gift-dialog.theme-night { --card-a: #0d0c2b; --card-b: #2a2468; --card-c: #5a4db0; --card-accent: #cfc6ff; }
+.gift-dialog h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.8rem; }
+.gift-dialog p { margin: 0; line-height: 1.6; }
+.gift-dialog b { color: var(--card-accent); font-size: 1.2em; }
+.gift-dialog input { background: rgba(255, 255, 255, 0.92); color: #2b1d18; }
+.gift-dialog .form-error { color: #ffd0d8; }
+.gift-dialog-actions { display: grid; gap: 8px; }
+.gift-dialog .primary { min-height: 54px; font-size: 1.05rem; background: var(--card-accent); color: #2b1d18; }
+.gift-dialog .ghost { color: #fff8f0; border-color: rgba(255, 255, 255, 0.3); background: transparent; }
+.gift-done { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 10px 0; }
+.gift-done svg { color: var(--card-accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .gift-done svg { animation: gift-pop 520ms cubic-bezier(.2, 1.6, .4, 1) both; }
+  @keyframes gift-pop { from { transform: scale(0.3) rotate(-20deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+}
+@media (max-width: 600px) {
+  .gift-card { padding: 18px; border-radius: 24px; }
+  .gift-actions button { flex: 1 1 auto; }
+}
