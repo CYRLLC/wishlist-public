@@ -5,7 +5,7 @@ import { Banknote, Bell, CalendarDays, ListChecks, Bus, Check, Copy, Film, Gift,
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { AppUser, BusRoute, ChoreTask, CoupleData, Currency, ExpenseCategory, FundEntry, GeoPoint, TaskRecurrence, TaskStatus, UrgencyLevel, Wish, WishStatus } from './types'
 import type { SearchResult, StopGroup } from './services/data'
-import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, findNearbyStopsAround, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
+import { addBusRoute, addFundEntry, addMessage, addSelfReport, addTask, addWish, approveTask, claimTask, convertAmount, deleteBusRoute, deleteFundEntry, deleteWish, findBusOptions, findNearbyStopsAround, formatEta, getExchangeRates, isFirebaseConfigured, login, logout, observeAuth, observeCoupleData, pairWithInviteCode, redeemWish, register, rejectTask, resetPassword, searchLocation, updateBusRoute, updateWish, updateWishStatus, uploadExpenseImage, uploadWishImage } from './services/data'
 
 const statusLabel: Record<WishStatus, string> = {
   pending: '待審核',
@@ -270,21 +270,46 @@ function NotificationCenter({ notifications, enabled, onEnable, onClear }: { not
   )
 }
 
+const authErrors: Record<string, string> = {
+  'auth/invalid-credential': 'Email 或密碼不正確。忘記密碼可以點下方「忘記密碼？」重設。',
+  'auth/invalid-email': 'Email 格式不正確',
+  'auth/email-already-in-use': '這個 Email 已經註冊過，請直接登入',
+  'auth/weak-password': '密碼至少需要 6 個字元',
+  'auth/too-many-requests': '嘗試次數太多，請稍後再試或重設密碼',
+  'auth/network-request-failed': '網路連線失敗，請確認網路後再試',
+}
+const authErrorText = (err: unknown) => {
+  const code = (err as { code?: string })?.code
+  return (code && authErrors[code]) || (err instanceof Error ? err.message : '登入失敗')
+}
+
 function AuthScreen({ onDone }: { onDone: (user: AppUser | null) => void }) {
   const [isRegister, setIsRegister] = useState(false)
   const [email, setEmail] = useState(isFirebaseConfigured ? '' : 'a@wish.local')
   const [password, setPassword] = useState(isFirebaseConfigured ? '' : 'password')
   const [nickname, setNickname] = useState(isFirebaseConfigured ? '' : '小寧')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [isReset, setIsReset] = useState(false)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
+    setNotice('')
+    if (isReset) {
+      try {
+        await resetPassword(email)
+        setNotice('如果這個 Email 有註冊，重設密碼信已寄出。請到信箱（含垃圾郵件匣）點連結設定新密碼，再回來登入。')
+      } catch (err) {
+        setError(authErrorText(err))
+      }
+      return
+    }
     try {
       const nextUser = isRegister ? await register(email, password, nickname) : await login(email, password)
       onDone(nextUser)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登入失敗')
+      setError(authErrorText(err))
     }
   }
 
@@ -296,13 +321,15 @@ function AuthScreen({ onDone }: { onDone: (user: AppUser | null) => void }) {
         <p>願望卡、審核、打工點數與共同資金，從手機到電腦都能直接使用。</p>
       </div>
       <form className="form-panel" onSubmit={submit}>
-        <h2>{isRegister ? '建立帳號' : '登入 WishLink'}</h2>
-        {isRegister && <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="暱稱" required />}
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required />
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密碼" required minLength={6} />
+        <h2>{isReset ? '重設密碼' : isRegister ? '建立帳號' : '登入 WishLink'}</h2>
+        {isRegister && !isReset && <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="暱稱" required />}
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required autoComplete="email" />
+        {!isReset && <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密碼" required minLength={6} autoComplete={isRegister ? 'new-password' : 'current-password'} />}
         {error && <p className="form-error">{error}</p>}
-        <button className="primary" type="submit">{isRegister ? '註冊' : '登入'}</button>
-        <button className="link" type="button" onClick={() => setIsRegister(!isRegister)}>{isRegister ? '已有帳號？登入' : '還沒帳號？免費註冊'}</button>
+        {notice && <p role="status">{notice}</p>}
+        <button className="primary" type="submit">{isReset ? '寄送重設信' : isRegister ? '註冊' : '登入'}</button>
+        {!isRegister && isFirebaseConfigured && <button className="link" type="button" onClick={() => { setIsReset(!isReset); setError(''); setNotice('') }}>{isReset ? '返回登入' : '忘記密碼？'}</button>}
+        {!isReset && <button className="link" type="button" onClick={() => setIsRegister(!isRegister)}>{isRegister ? '已有帳號？登入' : '還沒帳號？免費註冊'}</button>}
       </form>
     </section>
   )

@@ -1,6 +1,7 @@
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   User as FirebaseUser,
@@ -178,6 +179,12 @@ export async function login(email: string, password: string) {
   const result = await signInWithEmailAndPassword(auth, email, password)
   const snap = await getDoc(doc(db, 'users', result.user.uid))
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as AppUser) : null
+}
+
+export async function resetPassword(email: string) {
+  if (!isFirebaseConfigured || !auth) throw new Error('本機展示模式不需要密碼')
+  auth.languageCode = 'zh-TW'
+  await sendPasswordResetEmail(auth, email)
 }
 
 export async function logout() {
